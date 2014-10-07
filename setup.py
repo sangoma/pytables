@@ -25,5 +25,6 @@ setup(name='pytables',
     author_email='langy@sangoma.com',
     packages=['pytables'],
     package_dir={'pytables': 'src'},
+    scripts=['scripts/pytables-server']
 )
 

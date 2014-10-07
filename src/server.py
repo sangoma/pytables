@@ -397,8 +397,10 @@ class Server():
         sockflags = fcntl.fcntl(sock, fcntl.F_GETFD)
         fcntl.fcntl(sock, fcntl.F_SETFD, sockflags | fcntl.FD_CLOEXEC)
 
-    def setup(self, disk=True, debug=False):
-        IptcMain.setLogger(IptcLogger.create(MODULE_NAME, extra=self.mode, disk=disk, debug=debug))
+    def setup(self, extra=None, disk=True, debug=False):
+        IptcMain.setLogger(IptcLogger.create(MODULE_NAME,
+            extra=self.mode if extra is None else extra,
+            disk=disk, debug=debug))
 
     def log(self, msg, debug=True):
         data = 'daemon({mode},{pid}) {msg}'.format(
@@ -475,13 +477,3 @@ class Server():
             self.sock.close()
         except:
             pass
-
-if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        print 'usage: {me} <mode>'.format(me=sys.argv[0])
-        sys.exit(1)
-
-    IptcMain.setLogger(IptcLogger.create(MODULE_NAME, extra='console', disk=False, debug=True))
-    Server(sys.argv[1]).setup(disk=False, debug=True)
-    while True:
-        Server(sys.argv[1]).main()

@@ -1,0 +1,20 @@
+#!/usr/bin/env python2.7
+
+import argparse
+
+from pytables.server import Server
+
+parser = argparse.ArgumentParser(description='pytables server')
+
+parser.add_argument('mode', help='mode of operation (ipv4 or ipv6)')
+parser.add_argument('--debug', action='store_true', default=False, help='enable debug mode')
+parser.add_argument('--disk',  action='store_true', default=False, help='store log on disk')
+
+args = parser.parse_args()
+
+server = Server(args.mode)
+server.setup(extra='console-{mode}'.format(mode=args.mode), disk=args.disk, debug=args.debug)
+
+while True:
+    server.main()
+    server = Server(args.mode)
