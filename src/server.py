@@ -21,7 +21,7 @@ import struct
 import time
 import fcntl
 
-from __init__ import *
+from . import IptcMain, IptcLogger, IptcCache, IPTCError, pytables_socket
 
 MODULE_NAME = 'pytables-daemon'
 
@@ -355,7 +355,7 @@ class Server():
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(socket_name(mode))
+            sock.bind(pytables_socket(mode))
             sock.listen(5)
             sock.setblocking(0)
         except socket.error as e:

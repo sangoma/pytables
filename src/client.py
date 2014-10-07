@@ -21,7 +21,7 @@ import struct
 import time
 import fcntl
 
-from __init__ import *
+from . import IptcMain, IptcLogger, IptcCache, IPTCError, pytables_socket
 
 MODULE_NAME = 'pytables-client'
 
@@ -69,7 +69,7 @@ class ManagerInstance(object):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
         for attempt in range(0, 5):
             try:
-                self.sock.connect(socket_name(self.mode))
+                self.sock.connect(pytables_socket(self.mode))
                 self.sock.setblocking(1)
                 IptcMain.logger.debug('connection successfull!')
                 break
@@ -204,9 +204,10 @@ class Manager(object):
 
         return Manager.MANAGERS.get(mode)
 
-
 if __name__ == "__main__":
-    IptcMain.setLogger(IptcLogger.create(MODULE_NAME, disk=False, debug=True))
+    from . import Table, Table6, Chain, Rule, Target, Match
+
+    IptcMain.initialize()
 
     print 'Loading...'
 

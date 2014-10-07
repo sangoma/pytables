@@ -23,7 +23,7 @@ import fcntl
 
 MODULE_NAME = 'pytables'
 
-def socket_name(mode):
+def pytables_socket(mode):
     return b'\0' + b'{b}-{m}.server'.format(b=MODULE_NAME, m=mode)
 
 class IPTCError(Exception):
@@ -175,6 +175,7 @@ class IptcLogger():
 
 class IptcMain():
     logger = None
+    debug = False
 
     @classmethod
     def setLogger(cls, logger):
@@ -182,7 +183,14 @@ class IptcMain():
 
     @classmethod
     def setDebug(cls, debug):
-        cls.logger.setLevel(logging.DEBUG)
+        cls.debug = debug
+        if cls.logger is not None:
+            cls.logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    @classmethod
+    def initialize(cls, mode=None):
+        if cls.logger is None:
+            cls.setLogger(IptcLogger.create(MODULE_NAME, extra=mode, disk=True, debug=cls.debug))
 
 # Internal base classes
 
@@ -228,6 +236,7 @@ class IptcBaseTable(object):
     _cache = {}
 
     def __new__(cls, name, addrfamily, autocommit=False, autoload=True):
+        IptcMain.initialize(addrfamily if not autoload else None)
         refer = addrfamily + '.' + name
         IptcMain.logger.debug(
             'checking cache for Table({r})'.format(r=refer))
