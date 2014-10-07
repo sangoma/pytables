@@ -391,6 +391,7 @@ class Server():
                 os._exit(0)
         else:
             os.close(self.sock.fileno())
+            os.waitpid(pid, 0)
 
     def cloexec(self, sock):
         sockflags = fcntl.fcntl(sock, fcntl.F_GETFD)
