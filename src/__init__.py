@@ -233,6 +233,10 @@ class IptcChainHook(object):
 
 
 class IptcBaseTable(object):
+    FILTER  = 'filter'
+    NAT     = 'nat'
+    MANGLE  = 'mangle'
+
     _cache = {}
 
     def __new__(cls, name, addrfamily, autocommit=False, autoload=True):
@@ -603,6 +607,9 @@ class Rule(IptcBaseContainer):
     def add_match(self, match):
         self.matches.append(match)
 
+    def create_target(self, chain_name):
+        self.target = Target(self, chain_name)
+        return self.target
 
 class Rule6(Rule):
     pass
