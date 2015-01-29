@@ -1,0 +1,67 @@
+#!/usr/bin/env python2.7
+
+CONFIG_FILE = '/etc/pytables-server.conf'
+
+import os
+import sys
+import argparse
+import multitask as mt
+import ConfigParser as cp
+
+from pytables.server import Server
+
+from sngpyutils import daemon
+
+envdebug = Server.getEnvironmentDebug()
+
+class PytablesDaemon(daemon.Daemon):
+    VALID_MODES = { 'ipv4': [ 'ipv4' ],
+                    'ipv6': [ 'ipv6' ],
+                    'all': [ 'ipv4', 'ipv6' ] }
+
+    def main(self, **kwargs):
+        for mode in PytablesDaemon.VALID_MODES[self.mode]:
+            server = Server(mode)
+            self.servers.append(server)
+
+        for server in self.servers:
+            mt.add(server.run(enable_timeout=False))
+
+        mt.run()
+        return 0
+
+    def prepare(self, argparser):
+        argparser.add_argument('--mode',   default='all', help='set mode of operation (ipv4, ipv6 or all [default])')
+        argparser.add_argument('--debug',     dest='debug', action='store_true', default=None, help='enable debug mode')
+        argparser.add_argument('--no-debug',  dest='debug', action='store_false', help='disable debug mode')
+        argparser.add_argument('--disk',      dest='disk', action='store_true', default=None, help='store log on disk')
+        argparser.add_argument('--no-disk',   dest='disk', action='store_false', help='do not store log on disk')
+        argparser.add_argument('--console',   action='store_true', default=False, help='output log to console')
+
+    def setup(self, options):
+        self.servers = list()
+
+        if options.mode not in PytablesDaemon.VALID_MODES:
+            Server.logger().error('no servers loaded, invalid mode "{mode}"'.format(mode=options.mode))
+            sys.exit(2)
+
+        self.mode = options.mode
+
+        debug = envdebug if options.debug is None else options.debug
+        Server.initialize(debug=debug, disk=options.disk, console=options.console)
+        Server.logger().info('loaded server with mode={mode!s}, debug={debug!s}, disk={disk!s}'.format(
+            mode=options.mode, debug=debug, disk=options.disk))
+
+Server.initialize(debug=envdebug, disk=False, console=False)
+
+proc = PytablesDaemon('pytables-server', logger=Server.logger())
+
+try:
+    sys.exit(proc())
+except SystemExit as e:
+    raise
+except KeyboardInterrupt:
+    sys.exit(0)
+except daemon.Daemon.ActionFailed as e:
+    logger.error('command not found: {0}'.format(e.name))
+    sys.exit(1)

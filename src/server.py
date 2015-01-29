@@ -21,9 +21,12 @@ import struct
 import time
 import fcntl
 
-from . import IptcMain, IptcLogger, IptcCache, IPTCError, pytables_socket
+from . import IptcMain, IptcCache, IPTCError, pytables_socket
 
-MODULE_NAME = 'pytables-daemon'
+import ConfigParser
+
+MODULE_NAME = 'pytables-server'
+CONFIG_NAME = '/etc/pytables/server.conf'
 
 class WorkerInstance(object):
 
@@ -79,12 +82,14 @@ class WorkerInstance(object):
 
         IptcMain.logger.debug('closing process "{name}" (pid={pid})...'.format(
             name=self.cmdsave[0], pid=self.proc.pid))
+
         self.proc.stdin.flush()
         self.proc.stdin.close()
         retcode = self.proc.wait()
+
         if retcode != 0:
             IptcMain.logger.info(
-                'process "{name}" returned {ret}\n'.format(name=self.cmdsave[0], ret=retcode))
+                'process "{name}" returned {ret}'.format(name=self.cmdsave[0], ret=retcode))
 
         self.proc = None
 
@@ -340,34 +345,80 @@ class ServerAlreadyRunning(Exception):
 
 
 class Server():
-
     @classmethod
     def create(cls, mode):
         try:
-            Server(mode).start()
+            srv = Server(mode)
+            srv.execute()
+            return srv
         except ServerAlreadyRunning:
             IptcMain.logger.info('daemon already running, not starting')
         except:
             IptcMain.logger.warning(
                 'could not start daemon: {e}'.format(e=str(sys.exc_info()[1])))
+        return None
 
-    def __init__(self, mode):
+    @classmethod
+    def getEnvironmentDebug(cls):
+        return IptcMain.getEnvironmentDebug()
+
+    @classmethod
+    def initialize(cls, mode=None, debug=None, disk=None, console=None):
+        disk = True if disk is None else disk
+        console = False if console is None else console
+
+        config = ConfigParser.SafeConfigParser()
+
+        try:
+            if len(config.read(CONFIG_NAME)) == 0:
+                raise Exception()
+
+            sections = config.sections()
+
+            def safeget(sec, name, defvalue, conv):
+                try:
+                    return conv(config.get(sec, name))
+                except:
+                    return defvalue
+
+            secname = mode if mode is not None and mode in sections else 'default'
+
+            debug = safeget(secname, 'debug', debug, bool)
+            disk = safeget(secname, 'disk',  disk, bool)
+            console = safeget(secname, 'console', console, bool)
+        except:
+            pass
+
+        debug = cls.getEnvironmentDebug() if debug is None else debug
+
+        suffix = '-{}'.format(mode) if mode is not None else ''
+        IptcMain.initialize('{}{}'.format(MODULE_NAME, suffix), debug=debug,
+            disk=disk, console=console)
+
+    @classmethod
+    def setupSocket(cls, mode):
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(pytables_socket(mode))
             sock.listen(5)
             sock.setblocking(0)
+            return sock
         except socket.error as e:
             if e[0] == errno.EADDRINUSE:
                 raise ServerAlreadyRunning()
             raise
 
+    @classmethod
+    def logger(cls):
+        return IptcMain.logger
+
+    def __init__(self, mode):
+        self.sock = Server.setupSocket(mode)
         self.mode = mode
-        self.sock = sock
         self.tasks = None
 
-    def start(self):
+    def execute(self):
         pid = os.fork()
 
         if pid == 0:
@@ -382,7 +433,7 @@ class Server():
                     os.dup2(nilwr.fileno(), 2)
                     os.setsid()
                     # now setup and run
-                    self.setup()
+                    Server.initialize(self.mode)
                     os._exit(self.main())
                 except:
                     traceback.print_exc(file=sys.stderr)
@@ -397,13 +448,8 @@ class Server():
         sockflags = fcntl.fcntl(sock, fcntl.F_GETFD)
         fcntl.fcntl(sock, fcntl.F_SETFD, sockflags | fcntl.FD_CLOEXEC)
 
-    def setup(self, extra=None, disk=True, debug=False):
-        IptcMain.setLogger(IptcLogger.create(MODULE_NAME,
-            extra=self.mode if extra is None else extra,
-            disk=disk, debug=debug))
-
     def log(self, msg, debug=True):
-        data = 'daemon({mode},{pid}) {msg}'.format(
+        data = 'server({mode},{pid}) {msg}'.format(
             mode=self.mode, pid=os.getpid(), msg=msg)
         if debug:
             IptcMain.logger.debug(data)
@@ -411,21 +457,21 @@ class Server():
             IptcMain.logger.info(data)
 
     def main(self):
-        self.tasks = mt.TaskManager()
         self.cloexec(self.sock)
-        self.tasks.add(self.run())
-        self.tasks.run()
+        mt.add(self.run())
+        mt.run()
         return 0
 
-    def run(self):
+    def run(self, enable_timeout=True):
         self.clients = set()
 
         self.log('listening...', debug=False)
         try:
             while True:
-                kwargs = {}
-                if len(self.clients) == 0:
-                    kwargs['timeout'] = 5
+                kwargs = dict()
+                if len(self.clients) == 0 and enable_timeout:
+                    kwargs.update(timeout=5)
+
                 conn, addr = (yield mt.accept(self.sock, **kwargs))
 
                 # socket.SO_PEERCRED = 17, sizeof(struct ucred) = 24
@@ -437,7 +483,7 @@ class Server():
 
                 client = Connection(self.mode, conn, pid)
                 self.connect(client, conn)
-                yield client.run(self)
+                mt.add(client.run(self))
         except socket.error as e:
             if e[0] != errno.EBADF:
                 raise

@@ -15,15 +15,16 @@ import logging.handlers
 import subprocess
 import socket
 import traceback
-import multitask as mt
 import errno
 import struct
 import time
 import fcntl
+import ConfigParser
 
-from . import IptcMain, IptcLogger, IptcCache, IPTCError, pytables_socket
+from . import IptcMain, IptcCache, IPTCError, pytables_socket
 
 MODULE_NAME = 'pytables-client'
+CONFIG_NAME = '/etc/pytables/clients.conf'
 
 class LineRecvBuffer():
 
@@ -146,7 +147,7 @@ class ManagerInstance(object):
                 hookdata.append(hook)
 
         IptcMain.logger.debug(
-            'buffering {n} lines for table {name}...'.format(n=len(data), name=tblname))
+            'buffering {n} lines for table {mode}.{name}...'.format(n=len(data), mode=self.mode, name=tblname))
 
     def save(self):
         loop = True
@@ -192,22 +193,67 @@ class Manager(object):
         'ipv6': ManagerInstance(mode='ipv6')
     }
 
+    initialized = False
+
+    autostart = None
+    autoservers = dict()
+
     @classmethod
     def manager(cls, mode):
-        if not hasattr(cls, 'serverstarted'):
-            cls.serverstarted = {}
-
-        if cls.serverstarted.get(mode) is None:
+        if cls.autostart and mode not in cls.autoservers:
             from server import Server
-            Server.create(mode)
-            cls.serverstarted[mode] = True
+            cls.autoservers[mode] = Server.create(mode)
 
         return Manager.MANAGERS.get(mode)
 
+    @classmethod
+    def getEnvAutoStart(cls):
+        return os.environ.get('PYTABLES_SERVER_AUTOSTART', '0') != '0'
+
+    @classmethod
+    def initialize(cls):
+        if cls.initialized:
+            return
+
+        cls.initialized = True
+
+        optdebug, optdisk, optconsole = None, True, False
+
+        config = ConfigParser.SafeConfigParser()
+
+        try:
+            if len(config.read(CONFIG_NAME)) == 0:
+                raise Exception()
+
+            sections = config.sections()
+            progname = os.path.basename(os.path.abspath(sys.argv[0]))
+
+            def safeget(sec, name, defvalue, conv):
+                try:
+                    return conv(config.get(sec, name))
+                except:
+                    return defvalue
+
+            secname = progname if progname in sections else 'default'
+
+            optdebug = safeget(secname, 'debug', optdebug, bool)
+            optdisk = safeget(secname, 'disk',  optdisk, bool)
+            optconsole = safeget(secname, 'console', optconsole, bool)
+
+            cls.autostart = safeget(secname, 'auto-start', cls.autostart, bool)
+        except:
+            pass
+
+        optdebug = IptcMain.getEnvironmentDebug() if optdebug is None else optdebug
+
+        if cls.autostart is None:
+            cls.autostart = cls.getEnvAutoStart()
+
+        IptcMain.initialize('{}-{}'.format(MODULE_NAME, progname), debug=optdebug,
+            disk=optdisk, console=optconsole)
+
 if __name__ == "__main__":
     from . import Table, Table6, Chain, Rule, Target, Match
-
-    IptcMain.initialize()
 
     print 'Loading...'
 

@@ -71,7 +71,7 @@ class IptcCache():
                 IptcMain.logger.debug(
                     'found table specification "{l}"'.format(l=stripline))
 
-                table = IptcBaseTable(stripline[1:], mode, autoload=autoload)
+                table = IptcBaseTable(stripline[1:], mode, autocommit=True, autoload=autoload)
                 continue
 
             if stripline.startswith(':'):
@@ -146,36 +146,9 @@ class IptcCache():
             res.extend(table.dump(eol='\n'))
         return res
 
-
-class IptcLogger():
-
-    @classmethod
-    def create(cls, name, extra=None, disk=False, debug=False):
-        svname = name if extra is None else name + '-' + extra
-        logger = logging.getLogger(svname)
-
-        if disk:
-            handler = logging.handlers.RotatingFileHandler(
-                '/var/log/{name}.log'.format(name=svname), maxBytes=1000000, backupCount=3)
-            handler.setFormatter(
-                logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'.format(mod=svname)))
-            logger.addHandler(handler)
-        else:
-            handler = logging.StreamHandler(sys.stderr)
-            handler.setFormatter(
-                logging.Formatter('{mod} %(levelname)s: %(message)s'.format(mod=svname)))
-            logger.addHandler(handler)
-
-        if debug:
-            logger.setLevel(logging.DEBUG)
-        else:
-            logger.setLevel(logging.INFO)
-
-        return logger
-
 class IptcMain():
     logger = None
-    debug = False
+    debug = None
 
     @classmethod
     def setLogger(cls, logger):
@@ -188,17 +161,41 @@ class IptcMain():
             cls.logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
     @classmethod
-    def initialize(cls, mode=None):
-        if cls.logger is None:
-            cls.setLogger(IptcLogger.create(MODULE_NAME, extra=mode, disk=True, debug=cls.debug))
+    def getEnvironmentDebug(cls):
+        rmap = { '0': False, '1': True, None: None }
+        return rmap.get(os.environ.get('PYTABLES_DEBUG'))
+
+    @classmethod
+    def initialize(cls, name, debug=False, disk=None, console=False):
+        logger = logging.getLogger(name)
+
+        if disk:
+            handler = logging.handlers.RotatingFileHandler(
+                '/var/log/{name}.log'.format(name=name), maxBytes=1000000, backupCount=3)
+            handler.setFormatter(
+                logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'.format(mod=name)))
+            logger.addHandler(handler)
+
+        if console:
+            handler = logging.StreamHandler(sys.stderr)
+            handler.setFormatter(
+                logging.Formatter('{mod} %(levelname)s: %(message)s'.format(mod=name)))
+            logger.addHandler(handler)
+
+        cls.setLogger(logger)
+        cls.setDebug(debug)
+
 
 # Internal base classes
 
 
 class IptcBaseContainer(object):
 
-    def __init__(self):
+    def __init__(self, kwargs=None):
         self.exclude = set(self.__dict__.keys())
+        if kwargs is not None:
+            for name, value in kwargs.items():
+                setattr(self, name, value)
 
     def attributes(self, out):
         for key, val in self.__dict__.items():
@@ -237,10 +234,26 @@ class IptcBaseTable(object):
     NAT     = 'nat'
     MANGLE  = 'mangle'
 
+    _managers = {}
+    _manager = None
     _cache = {}
 
-    def __new__(cls, name, addrfamily, autocommit=False, autoload=True):
-        IptcMain.initialize(addrfamily if not autoload else None)
+    @classmethod
+    def getManager(cls, mode=None):
+        if mode is None:
+            if cls._manager is None:
+                from client import Manager
+                cls._manager = Manager
+            return cls._manager
+        else:
+            if mode not in cls._managers:
+                from client import Manager
+                cls._managers[mode] = Manager.manager(mode)
+            return cls._managers[mode]
+
+    def __new__(cls, name, addrfamily, autocommit, autoload=True):
+        if autoload:
+            IptcBaseTable.getManager().initialize()
         refer = addrfamily + '.' + name
         IptcMain.logger.debug(
             'checking cache for Table({r})'.format(r=refer))
@@ -253,26 +266,23 @@ class IptcBaseTable(object):
             IptcBaseTable._cache[refer] = obj
         if autoload:
             IptcMain.logger.debug('requested autoload from Table({r})'.format(r=refer))
-            from client import Manager
-            Manager.manager(obj.addrfamily).resync()
+            IptcBaseTable.getManager(addrfamily).resync()
         return obj
 
-    def setup(self, name, addrfamily, autocommit=False):
+    def setup(self, name, addrfamily, autocommit):
         self._chains = []
         self.name = name
         self.addrfamily = addrfamily
         self.autocommit = autocommit
-        self._manager = None
 
     def manager(self):
-        if self._manager is None:
-            from client import Manager
-            self._manager = Manager.manager(self.addrfamily)
-        return self._manager
+        return IptcBaseTable.getManager(self.addrfamily)
 
     def update(self, data):
         self.manager().update(self.name, data)
         if self.autocommit:
+            IptcMain.logger.debug(
+                'calling autocommit for {table} on update'.format(table=self.name))
             self.manager().save()
 
     chains = property(lambda s: list(s._chains))
@@ -319,7 +329,9 @@ class IptcBaseTable(object):
 
         self.manager().update(self.name, out, hook=IptcChainHook(chain, True))
         if self.autocommit:
-            self.manager().commit()
+            IptcMain.logger.debug(
+                'calling autocommit for {table} on chain {chain} creation'.format(table=self.name, chain=chain.name))
+            self.manager().save()
         return chain
 
     def delete_chain(self, chain):
@@ -341,7 +353,9 @@ class IptcBaseTable(object):
 
         self.manager().update(self.name, out, hook=IptcChainHook(chain, False))
         if self.autocommit:
-            self.manager().commit()
+            IptcMain.logger.debug(
+                'calling autocommit for {table} on chain {chain} deletion'.format(table=self.name, chain=chain.name))
+            self.manager().save()
 
     def load(self):
         self.manager.load()
@@ -362,13 +376,13 @@ class IptcBaseTable(object):
 
 class Table(IptcBaseTable):
 
-    def __new__(self, name, autocommit=False):
+    def __new__(self, name, autocommit=True):
         return super(Table, self).__new__(Table, name, 'ipv4', autocommit)
 
 
 class Table6(IptcBaseTable):
 
-    def __new__(self, name, autocommit=False):
+    def __new__(self, name, autocommit=True):
         return super(Table6, self).__new__(Table6, name, 'ipv6', autocommit)
 
 
@@ -547,6 +561,9 @@ class Chain(object):
         IptcMain.logger.debug('saving Chain({res})'.format(res=res))
         self.table.update(res)
 
+    def append_rule(self, rule):
+        return self.insert_rule(rule, pos=None)
+
     def delete_rule(self, rule, pos=None):
         IptcMain.logger.debug(
             'deleting rule {r}, pos {p}'.format(r=str(rule), p=str(pos)))
@@ -586,12 +603,12 @@ class Chain(object):
 
 class Rule(IptcBaseContainer):
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.target = None
         self.matches = []
 
         # this should be the last line in init
-        super(Rule, self).__init__()
+        super(Rule, self).__init__(kwargs=kwargs)
 
     def serialize(self):
         if self.target is None:
@@ -606,9 +623,11 @@ class Rule(IptcBaseContainer):
 
     def add_match(self, match):
         self.matches.append(match)
+        match.rule = self
 
     def create_target(self, chain_name):
         self.target = Target(self, chain_name)
+        self.target.rule = self
         return self.target
 
 class Rule6(Rule):
@@ -617,13 +636,16 @@ class Rule6(Rule):
 
 class Match(IptcBaseContainer):
 
-    def __init__(self, rule, name, reverse=False):
+    def __init__(self, rule, name, reverse=False, **kwargs):
         self.rule = rule
         self.name = name
         self.reverse = reverse
 
+        if rule is not None:
+            rule.add_match(self)
+
         # this should be the last line in init
-        super(Match, self).__init__()
+        super(Match, self).__init__(kwargs=kwargs)
 
     def serialize(self):
         lst = ['-m', self.name]
@@ -636,17 +658,18 @@ class Match(IptcBaseContainer):
 
 class Target(IptcBaseContainer):
 
-    def __init__(self, rule, name):
+    def __init__(self, rule, name, **kwargs):
         self.rule = rule
         self.name = name
 
         tmpname = str(name).upper()
         self.standard = tmpname != name
 
-        rule.target = self
+        if rule is not None:
+            rule.target = self
 
         # this should be the last line in init
-        super(Target, self).__init__()
+        super(Target, self).__init__(kwargs=kwargs)
 
     def serialize(self):
         lst = ['-j', self.name]
@@ -657,7 +680,7 @@ class Target(IptcBaseContainer):
 
 class Goto(IptcBaseContainer):
 
-    def __init__(self, rule, name):
+    def __init__(self, rule, name, **kwargs):
         self.rule = rule
         self.name = name
 
@@ -667,7 +690,7 @@ class Goto(IptcBaseContainer):
         rule.target = self
 
         # this should be the last line in init
-        super(Goto, self).__init__()
+        super(Goto, self).__init__(kwargs=kwargs)
 
     def serialize(self):
         lst = ['-g', self.name]
