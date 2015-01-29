@@ -1,0 +1,78 @@
+#!/bin/sh
+#
+# Startup script to for Snort Network Intrusion Detection
+#
+# chkconfig: 2345 99 01
+# description: Snort Network Intrusion Detection System
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Source networking configuration.
+. /etc/sysconfig/network
+
+# Check that networking is up.
+[ ${NETWORKING} = "no" ] && exit 0
+
+RETVAL=0
+EXENAME="pytables-server"
+PIDFILE=/var/run/$EXENAME.pid
+
+start() {
+	echo -n $"Starting $EXENAME: "
+	/usr/local/sng/bin/pytables-server start
+	RETVAL=$?
+	[ $RETVAL -eq 0 ] && success || failure
+	echo
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/$EXENAME
+}
+
+stop() {
+	echo -n $"Stopping $EXENAME: "
+	/usr/local/sng/bin/pytables-server stop
+	RETVAL=$?
+	[ $RETVAL -eq 0 ] && success || failure
+	echo
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/$EXENAME
+}
+
+pystatus() {
+	status -p $PIDFILE $EXENAME
+	RETVAL=$?
+}
+
+pidfile="/var/run/snort-watchdog.pid"
+
+# See how we were called.
+case "$1" in
+  start)
+	if ! status -p $pidfile snort-watchdog > /dev/null; then
+		start
+	fi
+	;;
+  stop)
+	if status -p $pidfile snort-watchdog > /dev/null; then
+		stop
+	fi
+	;;
+  status)
+	check_status
+	;;
+  condrestart)
+	if test -f $pidfile; then
+		$0 stop
+		$0 start
+		RETVAL=$?
+	fi
+	;;
+  restart|reload)
+	$0 stop
+	$0 start
+	RETVAL=$?
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|status|restart|condrestart|reload}"
+	exit 1
+esac
+
+exit $RETVAL
