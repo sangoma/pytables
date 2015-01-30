@@ -199,7 +199,7 @@ class Manager(object):
 
     @classmethod
     def checkServer(cls, mode):
-        logger.debug('checking server autostart ({!s}abled)'.format('en' \
+        IptcMain.logger.debug('checking server autostart ({!s}abled)'.format('en' \
             if cls.autostart else 'dis'))
         if not cls.autostart or mode in cls.autoservers:
             return False
