@@ -35,12 +35,15 @@ class install(_install):
     def run(self):
         _install.run(self)
 
+        rootdir = getattr(self, 'root') if hasattr(self, 'root') else ''
+
         import os
         import stat
 
         for filename in execfiles:
-            st = os.stat(filename)
-            os.chmod(filename, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+            fullname = os.path.join(rootdir, filename)
+            st = os.stat(fullname)
+            os.chmod(fullname, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 setup(name='pytables',
     cmdclass={'install': install},
