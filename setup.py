@@ -24,6 +24,11 @@ datafiles = [
     ('/etc/pytables',   ['conf/clients.conf', 'conf/server.conf']),
 ]
 
+execfiles = [
+    '/usr/bin/pytables-server',
+    '/etc/init.d/pytables'
+]
+
 setup(name='pytables',
     version='0.1',
     description='Pure-python iptc-compatible iptables frontend',
@@ -37,6 +42,6 @@ setup(name='pytables',
 import os
 import stat
 
-for file, _ in datafiles:
-    st = os.stat(file)
-    os.chmod(file, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+for filename in execfiles:
+    st = os.stat(filename)
+    os.chmod(filename, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
