@@ -18,6 +18,8 @@ except ImportError:
     from distutils.core import setup
     extras = {}
 
+from setuptools.command.install import install as _install
+
 datafiles = [
     ('/usr/bin',        ['bin/pytables-server']),
     ('/etc/init.d',     ['scripts/init/pytables']),
@@ -29,7 +31,19 @@ execfiles = [
     '/etc/init.d/pytables'
 ]
 
+class install(_install):
+    def run(self):
+        _install.run(self)
+
+        import os
+        import stat
+
+        for filename in execfiles:
+            st = os.stat(filename)
+            os.chmod(filename, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
 setup(name='pytables',
+    cmdclass={'install': install},
     version='0.1',
     description='Pure-python iptc-compatible iptables frontend',
     author='Sangoma Technologies',
@@ -38,10 +52,3 @@ setup(name='pytables',
     package_dir={'pytables': 'src'},
     data_files=datafiles
 )
-
-import os
-import stat
-
-for filename in execfiles:
-    st = os.stat(filename)
-    os.chmod(filename, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
