@@ -20,7 +20,7 @@ PIDFILE=/var/run/$EXENAME.pid
 
 start() {
 	echo -n $"Starting $EXENAME: "
-	/usr/local/sng/bin/pytables-server start
+	/usr/bin/pytables-server start
 	RETVAL=$?
 	[ $RETVAL -eq 0 ] && success || failure
 	echo
@@ -29,7 +29,7 @@ start() {
 
 stop() {
 	echo -n $"Stopping $EXENAME: "
-	/usr/local/sng/bin/pytables-server stop
+	/usr/bin/pytables-server stop
 	RETVAL=$?
 	[ $RETVAL -eq 0 ] && success || failure
 	echo
@@ -41,17 +41,15 @@ pystatus() {
 	RETVAL=$?
 }
 
-pidfile="/var/run/snort-watchdog.pid"
-
 # See how we were called.
 case "$1" in
   start)
-	if ! status -p $pidfile snort-watchdog > /dev/null; then
+	if ! status -p $PIDFILE $EXENAME > /dev/null; then
 		start
 	fi
 	;;
   stop)
-	if status -p $pidfile snort-watchdog > /dev/null; then
+	if status -p $PIDFILE $EXENAME > /dev/null; then
 		stop
 	fi
 	;;
@@ -59,7 +57,7 @@ case "$1" in
 	check_status
 	;;
   condrestart)
-	if test -f $pidfile; then
+	if test -f $PIDFILE; then
 		$0 stop
 		$0 start
 		RETVAL=$?

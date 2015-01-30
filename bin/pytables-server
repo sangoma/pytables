@@ -12,6 +12,15 @@ from pytables.server import Server
 
 from sngpyutils import daemon
 
+progname = os.path.basename(sys.argv[0])
+
+try:
+    import setproctitle
+    os.environ['SPT_NOENV']='1'
+    setproctitle.setproctitle(progname)
+except:
+    logger.warning('unable to set process title: {!s}'.format(sys.exc_info()[1]))
+
 envdebug = Server.getEnvironmentDebug()
 
 class PytablesDaemon(daemon.Daemon):
