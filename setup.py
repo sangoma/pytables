@@ -41,7 +41,7 @@ class install(_install):
         import stat
 
         for filename in execfiles:
-            fullname = os.path.join(rootdir, filename)
+            fullname = os.path.normpath(rootdir + '/' + filename)
             st = os.stat(fullname)
             os.chmod(fullname, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
