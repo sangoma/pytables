@@ -75,10 +75,9 @@ class ManagerInstance(object):
                 IptcMain.logger.debug('connection successfull!')
                 break
             except socket.error as e:
+                Manager.checkServer(self.mode)
                 IptcMain.logger.warning(
                     'connection failed: {s}, trying again...'.format(s=str(e)))
-                from server import Server
-                Server.create(self.mode)
                 time.sleep(0.5)
         else:
             raise IPTCError('too many failed connection attempts, giving up')
@@ -199,11 +198,19 @@ class Manager(object):
     autoservers = dict()
 
     @classmethod
-    def manager(cls, mode):
-        if cls.autostart and mode not in cls.autoservers:
-            from server import Server
-            cls.autoservers[mode] = Server.create(mode)
+    def checkServer(cls, mode):
+        logger.debug('checking server autostart ({!s}abled)'.format('en' \
+            if cls.autostart else 'dis')
+        if not cls.autostart or mode in cls.autoservers:
+            return False
 
+        from server import Server
+        cls.autoservers[mode] = Server.create(mode)
+        return True
+
+    @classmethod
+    def manager(cls, mode):
+        cls.checkServer(mode)
         return Manager.MANAGERS.get(mode)
 
     @classmethod
@@ -236,11 +243,18 @@ class Manager(object):
 
             secname = progname if progname in sections else 'default'
 
-            optdebug = safeget(secname, 'debug', optdebug, bool)
-            optdisk = safeget(secname, 'disk',  optdisk, bool)
-            optconsole = safeget(secname, 'console', optconsole, bool)
+            def tobool(data):
+                data = data.lower()
+                try:
+                    return bool(int(data))
+                except:
+                    return data == 'true' or data == 'yes' or data == 'y'
 
-            cls.autostart = safeget(secname, 'auto-start', cls.autostart, bool)
+            optdebug = safeget(secname, 'debug', optdebug, tobool)
+            optdisk = safeget(secname, 'disk',  optdisk, tobool)
+            optconsole = safeget(secname, 'console', optconsole, tobool)
+
+            cls.autostart = safeget(secname, 'auto-start', cls.autostart, tobool)
         except:
             pass
 

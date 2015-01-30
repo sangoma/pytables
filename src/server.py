@@ -383,9 +383,16 @@ class Server():
 
             secname = mode if mode is not None and mode in sections else 'default'
 
-            debug = safeget(secname, 'debug', debug, bool)
-            disk = safeget(secname, 'disk',  disk, bool)
-            console = safeget(secname, 'console', console, bool)
+            def tobool(data):
+                data = data.lower()
+                try:
+                    return bool(int(data))
+                except:
+                    return data == 'true' or data == 'yes' or data == 'y'
+
+            debug = safeget(secname, 'debug', debug, tobool)
+            disk = safeget(secname, 'disk',  disk, tobool)
+            console = safeget(secname, 'console', console, tobool)
         except:
             pass
 

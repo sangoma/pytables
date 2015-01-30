@@ -38,23 +38,23 @@ stop() {
 
 pystatus() {
 	status -p $PIDFILE $EXENAME
-	RETVAL=$?
 }
 
 # See how we were called.
 case "$1" in
   start)
-	if ! status -p $PIDFILE $EXENAME > /dev/null; then
+	if ! pystatus > /dev/null; then
 		start
 	fi
 	;;
   stop)
-	if status -p $PIDFILE $EXENAME > /dev/null; then
+	if pystatus > /dev/null; then
 		stop
 	fi
 	;;
   status)
-	check_status
+	pystatus
+	RETVAL=$?
 	;;
   condrestart)
 	if test -f $PIDFILE; then
