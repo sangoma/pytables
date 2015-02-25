@@ -105,6 +105,8 @@ class ManagerInstance(object):
         if not self.loaded:
             self.load()
             self.loaded = True
+        else:
+            self.load(False)
 
     def close(self):
         if not self.failed:
@@ -112,20 +114,25 @@ class ManagerInstance(object):
 
         self.failed = False
 
-    def load(self):
+    def load(self, force=True):
         IptcMain.logger.debug('loading data from server process')
 
-        self.send('LOAD')
+        self.send('LOAD' if force else 'SYNC')
 
-        data = []
+        data, okey = [], False
+
         for line in self.recv():
             if line == 'OK':
+                okey = True
                 break
 
             if line.startswith('FAILURE/'):
                 raise IPTCError(line[8:])
 
             data.append(line)
+
+        if okey and len(data) == 0:
+            return
 
         IptcCache.load(self.mode, data, autoload=False)
 

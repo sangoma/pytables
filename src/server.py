@@ -187,7 +187,8 @@ class ConnectionStateVoid(ConnectionBaseState):
         super(ConnectionStateVoid, self).__init__()
 
     def load(self, states):
-        self.transitions = {'LOAD': states.load}
+        self.transitions = {'LOAD': states.load,
+                            'SYNC': states.load}
 
     def handle(self, c, msg):
         retr = False
@@ -208,6 +209,7 @@ class ConnectionStateSync(ConnectionBaseState):
 
     def load(self, states):
         self.transitions = {
+            'SYNC': states.done,
             'LOAD': states.load,
             'SAVE': states.save
         }
@@ -281,6 +283,15 @@ class ConnectionStateSave(ConnectionBaseState):
         raise StopIteration()
         yield
 
+class ConnectionStateDone(ConnectionBaseState):
+
+    def __init__(self):
+        super(ConnectionStateDone, self).__init__()
+
+    def running(self, c):
+        yield c.send('OK')
+        c.state.current = c.state.sync
+        raise StopIteration()
 
 class ConnectionState():
 
@@ -289,6 +300,7 @@ class ConnectionState():
         self.sync = ConnectionStateSync()
         self.load = ConnectionStateLoad()
         self.save = ConnectionStateSave()
+        self.done = ConnectionStateDone()
         self.current = self.void
 
 
