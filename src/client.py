@@ -122,6 +122,8 @@ class ManagerInstance(object):
         data, okey = [], False
 
         for line in self.recv():
+            IptcMain.logger.debug('{mode} received: {data}'.format(mode=self.mode,data=line))
+
             if line == 'OK':
                 okey = True
                 break

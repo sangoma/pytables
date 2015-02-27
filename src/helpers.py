@@ -66,7 +66,7 @@ def iptc_command(logger=None, maxretry=5):
                                 if tblref in tblsync:
                                     continue
                                 tblsync.append(tblref)
-                            tbllst.clear()
+                            del tbllst[:]
                         else:
                             obj.restart()
                             if obj not in tblcurr:

@@ -106,6 +106,13 @@ class IptcCache():
                     'found rule specification "{l}"'.format(l=stripline))
 
                 rdata = shlex.split(stripline)
+
+                if table is None:
+                    IptcMain.logger.error(
+                        'no table, cannot load rule in chain "{name}"'.format(name=rdata[1] \
+                            if len(rdata) <> 0 else '<none>'))
+                    continue
+
                 chain = Chain(table, rdata[1], autoload=autoload)
 
                 if chain is None:
