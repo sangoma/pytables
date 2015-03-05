@@ -10,6 +10,7 @@
 
 __all__ = [ 'iptc_return', 'iptc_commit', 'iptc_abort', 'iptc_command' ]
 
+import time
 from . import IPTCError, XTablesError
 
 class IptcEmptyLogger(object):
