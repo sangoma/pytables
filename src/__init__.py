@@ -545,22 +545,20 @@ class Chain(object):
 
     rules = property(lambda s: list(s._rules))
 
-    def insert_rule(self, rule, pos=None):
+    def insert_rule(self, rule, pos=1):
         IptcMain.logger.debug(
             'inserting rule {r}, pos {p}'.format(r=str(rule), p=str(pos)))
 
         tmp = []
         if rule not in self._rules:
-            self._rules.append(rule)
-
             if pos is None:
+                self._rules.append(rule)
                 tmp.extend(['-A', self.name])
             else:
+                self._rules.insert(pos-1, rule)
                 tmp.extend(['-I', self.name, str(pos)])
         else:
-            if pos is None:
-                pos = self._rules.index(rule)
-
+            pos = self._rules.index(rule)
             tmp.extend(['-I', self.name, pos])
 
         tmp.append(rule.serialize())
