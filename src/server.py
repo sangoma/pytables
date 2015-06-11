@@ -375,13 +375,16 @@ class Server():
         return IptcMain.getEnvironmentDebug()
 
     @classmethod
-    def initialize(cls, mode=None, debug=None, disk=None, console=None):
+    def initialize(cls, mode=None, debug=None, disk=None, console=None, partial=False):
         disk = True if disk is None else disk
         console = False if console is None else console
 
         config = ConfigParser.SafeConfigParser()
 
         try:
+            if partial:
+                raise Exception()
+
             if len(config.read(CONFIG_NAME)) == 0:
                 raise Exception()
 

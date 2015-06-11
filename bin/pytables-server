@@ -61,7 +61,7 @@ class PytablesDaemon(daemon.Daemon):
         Server.logger().info('loaded server with mode={mode!s}, debug={debug!s}, disk={disk!s}'.format(
             mode=options.mode, debug=debug, disk=options.disk))
 
-Server.initialize(debug=envdebug, disk=False, console=False)
+Server.initialize(debug=envdebug, disk=False, console=False, partial=True)
 
 proc = PytablesDaemon('pytables-server', logger=Server.logger())
 
