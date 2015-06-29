@@ -180,6 +180,10 @@ class ConnectionBaseState(object):
 
         raise StopIteration(ret)
 
+    ## TODO: replace every debug message for this function
+    def logdebug(self, c=None, msg=None):
+        IptcMain.logger.debug('{o}({p}) {msg}'.format(
+            o=self.__class__.__name__, p=c.pid, msg=msg))
 
 class ConnectionStateVoid(ConnectionBaseState):
 
@@ -187,8 +191,11 @@ class ConnectionStateVoid(ConnectionBaseState):
         super(ConnectionStateVoid, self).__init__()
 
     def load(self, states):
-        self.transitions = {'LOAD': states.load,
-                            'SYNC': states.load}
+        self.transitions = {
+            'LOAD': states.load,
+            'SYNC': states.load,
+            'BOOT': states.boot
+        }
 
     def handle(self, c, msg):
         retr = False
@@ -211,7 +218,8 @@ class ConnectionStateSync(ConnectionBaseState):
         self.transitions = {
             'SYNC': states.done,
             'LOAD': states.load,
-            'SAVE': states.save
+            'SAVE': states.save,
+            'BOOT': states.boot,
         }
 
 
@@ -248,17 +256,16 @@ class ConnectionStateSave(ConnectionBaseState):
         super(ConnectionStateSave, self).__init__()
 
     def load(self, states):
-        self.transitions = {'COMMIT': states.sync}
+        self.transitions = {
+            'COMMIT': states.sync
+        }
 
     def handle(self, c, msg):
         retr = False
         if msg == 'COMMIT':
             ret = Worker.worker(c.mode).save(self.data)
-            if ret is None:
-                res = 'OK'
-            else:
-                res = 'FAILURE/{ret}'.format(ret=ret)
 
+            res = 'OK' if ret is None else 'FAILURE/{ret}'.format(ret=ret)
             yield c.send(res)
 
             IptcMain.logger.debug('{c}({pid}) handle(COMMIT) = {res}'.format(pid=c.pid,
@@ -293,6 +300,21 @@ class ConnectionStateDone(ConnectionBaseState):
         c.state.current = c.state.sync
         raise StopIteration()
 
+
+class ConnectionStateBoot(ConnectionBaseState):
+
+    def __init__(self):
+        super(ConnectionStateBoot, self).__init__()
+
+    def running(self, c):
+        worker = Worker.worker(c.mode)
+        worker.close()
+        worker.load()
+
+        yield c.send('OK')
+        c.state.current = c.state.void
+        raise StopIteration()
+
 class ConnectionState():
 
     def __init__(self):
@@ -301,6 +323,7 @@ class ConnectionState():
         self.load = ConnectionStateLoad()
         self.save = ConnectionStateSave()
         self.done = ConnectionStateDone()
+        self.boot = ConnectionStateBoot()
         self.current = self.void
 
 
@@ -311,16 +334,19 @@ class Connection():
         self.stream = mt.Stream(conn)
         self.pid = pid
         self.state = ConnectionState()
+        self.reply = 0
         IptcMain.logger.debug(
             'client({mode},{pid}) new client instance'.format(mode=self.mode, pid=self.pid))
 
     def send(self, data):
-        yield self.sendbuffer(data + '\n')
+        self.reply = self.reply + 1
+        IptcMain.logger.debug('client({mode},{pid}) sending: {x}'.format(mode=self.mode, pid=self.pid, x=data))
+        yield self.sendbuffer('{n!s} {data}\n'.format(n=self.reply, data=data))
 
     def sendbuffer(self, data):
-        strdata = ''.join(data)
-        IptcMain.logger.debug('client({mode},{pid}) sending {n} lines of data'.format(
-            mode=self.mode, pid=self.pid, n=len(data)))
+        strdata, strlines = (''.join(data), len(data)) if isinstance(data, list) else (data, 1)
+        IptcMain.logger.debug('client({mode},{pid}) sending {n} line(s) of data'.format(
+            mode=self.mode, pid=self.pid, n=strlines, x=strdata))
         yield self.stream.write(strdata)
 
     def process(self, message, daemon):
@@ -339,7 +365,8 @@ class Connection():
                     break  # log something?
                 IptcMain.logger.debug('client({mode},{pid}) processing message: {m}'.format(
                     mode=self.mode, pid=self.pid, m=data))
-                yield self.process(data, daemon)
+                (msgnumber, msgdata) = data.split(' ', 1)
+                yield self.process(msgdata, daemon)
 
         except socket.error as e:
             if e[0] != errno.EBADF and e[0] != errno.ECONNRESET and e[0] != errno.EPIPE:

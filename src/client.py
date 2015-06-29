@@ -20,8 +20,9 @@ import struct
 import time
 import fcntl
 import ConfigParser
+import threading
 
-from . import IptcMain, IptcCache, IPTCError, pytables_socket
+from . import IptcMain, IptcCache, IPTCError, pytables_socket, debugcall
 
 MODULE_NAME = 'pytables-client'
 CONFIG_NAME = '/etc/pytables/clients.conf'
@@ -31,7 +32,7 @@ class LineRecvBuffer():
     def __init__(self):
         self.buff = ''
 
-    def recv(self, sock):
+    def recv(self, sock, number=None):
         pos, cur, lst = 0, 0, []
 
         IptcMain.logger.debug('receiving data from server')
@@ -40,7 +41,7 @@ class LineRecvBuffer():
             raise IPTCError('connection closed')
 
         self.buff += res
-        while pos < len(self.buff):
+        while pos < len(self.buff) and (len(lst) < number if number else True):
             cur = self.buff.find('\n', pos)
             if cur == -1:
                 break
@@ -50,6 +51,7 @@ class LineRecvBuffer():
         if pos != 0:
             self.buff = self.buff[pos:]
 
+        IptcMain.logger.debug('responses from server: {s}'.format(s=', '.join(lst)))
         return lst
 
 
@@ -62,9 +64,13 @@ class ManagerInstance(object):
         self.mode = mode
         self.sock = None
 
+        self.request = 0
+
         self.recv_buffer = LineRecvBuffer()
         self.save_buffer = {}
         self.chain_hooks = {}
+
+        self.lock = threading.Lock()
 
     def start(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
@@ -85,28 +91,45 @@ class ManagerInstance(object):
     def send(self, data):
         if self.sock is None:
             self.start()
-
+        self.request = self.request + 1
+        strdata = '{n!s} {s}'.format(n=self.request, s=data)
         IptcMain.logger.debug(
-            '({mode}) sending: {data}'.format(mode=self.mode, data=data))
-        self.sock.send(data + '\n')
+            '({mode}) sending: {data}'.format(mode=self.mode, data=strdata))
+        self.sendbuffer(strdata, nl=True)
 
-    def recv(self):
+    def sendbuffer(self, data, nl=True):
+        strnewl = '\n' if nl else ''
+        strdata, strlines = (strnewl.join(data) + strnewl, len(data)) \
+            if isinstance(data, list) else (data + strnewl, 1)
+        IptcMain.logger.debug(
+            '({mode}) buffering {n} lines'.format(mode=self.mode, n=strlines))
+        self.sock.send(strdata)
+
+    def recv(self, number=None):
         if self.sock is None:
             self.start()
 
-        return self.recv_buffer.recv(self.sock)
+        return self.recv_buffer.recv(self.sock, number)
 
-    def restart(self):
-        self.resync()
+    def restart(self, force=True):
+        self.resync(force=force)
 
-    def resync(self):
-        IptcMain.logger.debug('requested manager resync')
+    def resync(self, force=False):
+        IptcMain.logger.debug('requested manager resync (force={f!s})'.format(f=force))
 
-        if not self.loaded:
-            self.load()
-            self.loaded = True
-        else:
-            self.load(False)
+        try:
+            self.lock.acquire()
+
+            if force:
+                self.reboot(locked=False)
+
+            if not self.loaded:
+                self.load(locked=False)
+                self.loaded = True
+            else:
+                self.load(force=False, locked=False)
+        finally:
+            self.lock.release()
 
     def close(self):
         if not self.failed:
@@ -114,31 +137,66 @@ class ManagerInstance(object):
 
         self.failed = False
 
-    def load(self, force=True):
-        IptcMain.logger.debug('loading data from server process')
+    def reboot(self, locked=True):
+        IptcMain.logger.debug('sending reboot request to server process')
 
-        self.send('LOAD' if force else 'SYNC')
+        try:
+            if locked:
+                self.lock.acquire()
 
-        data, okey = [], False
+            self.send('BOOT')
 
-        for line in self.recv():
-            IptcMain.logger.debug('{mode} received: {data}'.format(mode=self.mode,data=line))
+            msgdata = self.recv(number=1)[0].split(' ',1)
+            if len(msgdata) == 2:
+                if msgdata[1].startswith('FAILURE/'):
+                    raise IPTCError(msgdata[1][8:])
+                if msgdata[1] != 'OK':
+                    raise IPTCError('unknown reply: {s}'.format(s=msgdata[1]))
+            else:
+                raise IPTCError('invalid reply: {s!s}'.format(s=msgdata))
 
-            if line == 'OK':
-                okey = True
-                break
+        finally:
+            if locked:
+                self.lock.release()
 
-            if line.startswith('FAILURE/'):
-                raise IPTCError(line[8:])
+    @debugcall
+    def load(self, force=True, locked=True):
+        try:
+            if locked:
+                self.lock.acquire()
 
-            data.append(line)
+            self.send('LOAD' if force else 'SYNC')
 
-        if okey and len(data) == 0:
-            return
+            data, okey = [], False
 
-        IptcCache.load(self.mode, data, autoload=False)
+            while not okey:
+                for line in self.recv():
+                    IptcMain.logger.debug('{mode} received: {data}'.format(mode=self.mode,data=line))
 
+                    msgdata = line.split(' ',1)
+                    if len(msgdata) == 2:
+                        if msgdata[1] == 'OK':
+                            okey = True
+                            break
+
+                        if msgdata[1].startswith('FAILURE/'):
+                            raise IPTCError(msgdata[1][8:])
+
+                    data.append(line)
+
+            if okey and len(data) == 0:
+                return
+
+            IptcCache.load(self.mode, data, autoload=False)
+
+        finally:
+            if locked:
+                self.lock.release()
+
+    @debugcall
     def update(self, tblname, data, hook=None):
+        self.lock.acquire()
+
         buffdata = self.save_buffer.get(tblname)
 
         if buffdata is None:
@@ -157,42 +215,49 @@ class ManagerInstance(object):
         IptcMain.logger.debug(
             'buffering {n} lines for table {mode}.{name}...'.format(n=len(data), mode=self.mode, name=tblname))
 
+        self.lock.release()
+
+    @debugcall
     def save(self):
         loop = True
 
-        for (tblname, data) in self.save_buffer.items():
-            try:
-                self.send('SAVE')
-                self.send('TABLE/' + tblname)
-                for ln in data:
-                    self.send(ln)
-                self.send('COMMIT')
+        try:
+            self.lock.acquire()
 
-                resp = []
-                while len(resp) == 0:
-                    resp = self.recv()
+            for (tblname, data) in self.save_buffer.items():
+                try:
+                    self.send('SAVE')
+                    self.sendbuffer('TABLE/' + tblname)
+                    self.sendbuffer(data)
+                    self.sendbuffer('COMMIT')
 
-                if resp[0].startswith('FAILURE/'):
-                    raise IPTCError(resp[0][8:])
+                    msgdata = self.recv(number=1)[0].split(' ',1)
+                    if len(msgdata) == 2:
+                        if msgdata[1].startswith('FAILURE/'):
+                            raise IPTCError(msgdata[1][8:])
+                        if msgdata[1] != 'OK':
+                            raise IPTCError('unknown reply: {s}'.format(s=msgdata[1]))
+                    else:
+                        raise IPTCError('invalid reply: {s!s}'.format(s=msgdata))
 
-                hooks = self.chain_hooks.get(tblname)
-                if hooks is not None:
-                    for hook in hooks:
-                        hook.run()
+                    hooks = self.chain_hooks.get(tblname)
+                    if hooks is not None:
+                        for hook in hooks:
+                            hook.run()
 
-            except IOError, e:
-                self.loaded = False
-                self.failed = True
-                self.save_buffer = {}
-                raise IPTCError(str(e))
+                except IOError, e:
+                    self.loaded = False
+                    self.failed = True
+                    raise IPTCError(str(e))
 
-            except IPTCError, e:
-                self.loaded = False
-                self.failed = True
-                self.save_buffer = {}
-                raise
+                except IPTCError, e:
+                    self.loaded = False
+                    self.failed = True
+                    raise
 
-        self.save_buffer = {}
+        finally:
+            self.save_buffer = {}
+            self.lock.release()
 
 
 class Manager(object):
