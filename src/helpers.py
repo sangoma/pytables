@@ -69,13 +69,17 @@ def iptc_command(logger=None, maxretry=5):
                                 tblsync.append(tblref)
                             del tbllst[:]
                         else:
-                            obj.restart()
+                            obj.resync()
                             if obj not in tblcurr:
                                 tblcurr.append(obj)
 
                 except (IPTCError, XTablesError) as e:
                     if tbl is not None:
                         getlogger().debug("commit failed on table {!s}: {!s}, retrying...".format(tbl, e))
+                        try:
+                            tbl.restart()
+                        except (IPTCError, XTablesError) as e:
+                            getlogger().warning("restart failed on table {!s}: {!s}.".format(tbl, e))
                     else:
                         getlogger().debug("iptc operation failed: {!s}, retrying...".format(e))
 

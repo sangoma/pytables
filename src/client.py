@@ -91,25 +91,40 @@ class ManagerInstance(object):
     def send(self, data):
         if self.sock is None:
             self.start()
-        self.request = self.request + 1
-        strdata = '{n!s} {s}'.format(n=self.request, s=data)
         IptcMain.logger.debug(
-            '({mode}) sending: {data}'.format(mode=self.mode, data=strdata))
-        self.sendbuffer(strdata, nl=True)
+            '({mode}) sending: {data}'.format(mode=self.mode, data=data))
+        self.sendbuffer(data, nl=True)
+
+    def sendformat(self, msg):
+        ret = '{n:03x} {s}'.format(s=msg,n=self.request)
+        self.request = (self.request + 1) % 0x1000
+        return ret
 
     def sendbuffer(self, data, nl=True):
-        strnewl = '\n' if nl else ''
-        strdata, strlines = (strnewl.join(data) + strnewl, len(data)) \
-            if isinstance(data, list) else (data + strnewl, 1)
+        newline = '\n' if nl else ''
+        data = map(self.sendformat, data) if isinstance(data, list) else self.sendformat(data)
+        strdata, strlines = (newline.join(data) + newline, len(data)) \
+            if isinstance(data, list) else (data + newline, 1)
         IptcMain.logger.debug(
             '({mode}) buffering {n} lines'.format(mode=self.mode, n=strlines))
         self.sock.send(strdata)
+
+    def process(self, data):
+        res = list()
+        for line in data:
+            IptcMain.logger.debug('processing message: {m}'.format(m=line))
+            msgdata = line.split(' ', 1)
+            if len(msgdata) == 2:
+                res.append(msgdata[1])
+            else:
+                IptcMain.logger.warning('ignoring message with wrong format: {m}'.format(m=line))
+        return res
 
     def recv(self, number=None):
         if self.sock is None:
             self.start()
 
-        return self.recv_buffer.recv(self.sock, number)
+        return self.process(self.recv_buffer.recv(self.sock, number))
 
     def restart(self, force=True):
         self.resync(force=force)
@@ -146,15 +161,12 @@ class ManagerInstance(object):
 
             self.send('BOOT')
 
-            msgdata = self.recv(number=1)[0].split(' ',1)
-            if len(msgdata) == 2:
-                if msgdata[1].startswith('FAILURE/'):
-                    raise IPTCError(msgdata[1][8:])
-                if msgdata[1] != 'OK':
-                    raise IPTCError('unknown reply: {s}'.format(s=msgdata[1]))
-            else:
-                raise IPTCError('invalid reply: {s!s}'.format(s=msgdata))
+            msgdata = self.recv(number=1)[0]
 
+            if msgdata.startswith('FAILURE/'):
+                raise IPTCError(msgdata[8:])
+            if msgdata != 'OK':
+                raise IPTCError('unknown reply: {s}'.format(s=msgdata))
         finally:
             if locked:
                 self.lock.release()
@@ -173,14 +185,12 @@ class ManagerInstance(object):
                 for line in self.recv():
                     IptcMain.logger.debug('{mode} received: {data}'.format(mode=self.mode,data=line))
 
-                    msgdata = line.split(' ',1)
-                    if len(msgdata) == 2:
-                        if msgdata[1] == 'OK':
-                            okey = True
-                            break
+                    if line == 'OK':
+                        okey = True
+                        break
 
-                        if msgdata[1].startswith('FAILURE/'):
-                            raise IPTCError(msgdata[1][8:])
+                    if line.startswith('FAILURE/'):
+                        raise IPTCError(line[8:])
 
                     data.append(line)
 
@@ -231,14 +241,11 @@ class ManagerInstance(object):
                     self.sendbuffer(data)
                     self.sendbuffer('COMMIT')
 
-                    msgdata = self.recv(number=1)[0].split(' ',1)
-                    if len(msgdata) == 2:
-                        if msgdata[1].startswith('FAILURE/'):
-                            raise IPTCError(msgdata[1][8:])
-                        if msgdata[1] != 'OK':
-                            raise IPTCError('unknown reply: {s}'.format(s=msgdata[1]))
-                    else:
-                        raise IPTCError('invalid reply: {s!s}'.format(s=msgdata))
+                    msgdata = self.recv(number=1)[0]
+                    if msgdata.startswith('FAILURE/'):
+                        raise IPTCError(msgdata[8:])
+                    if msgdata != 'OK':
+                        raise IPTCError('unknown reply: {s}'.format(s=msgdata))
 
                     hooks = self.chain_hooks.get(tblname)
                     if hooks is not None:

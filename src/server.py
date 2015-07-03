@@ -239,7 +239,7 @@ class ConnectionStateLoad(ConnectionBaseState):
             IptcMain.logger.debug('{c}({pid}) running(), sending {n} lines'.format(pid=c.pid,
                                                                                    c=self.__class__.__name__, n=len(data)))
 
-            yield c.sendbuffer(data)
+            yield c.sendbuffer(data, nl=False)
             res = 'OK'
 
         yield c.send(res)
@@ -339,12 +339,19 @@ class Connection():
             'client({mode},{pid}) new client instance'.format(mode=self.mode, pid=self.pid))
 
     def send(self, data):
-        self.reply = self.reply + 1
         IptcMain.logger.debug('client({mode},{pid}) sending: {x}'.format(mode=self.mode, pid=self.pid, x=data))
-        yield self.sendbuffer('{n!s} {data}\n'.format(n=self.reply, data=data))
+        yield self.sendbuffer(data)
 
-    def sendbuffer(self, data):
-        strdata, strlines = (''.join(data), len(data)) if isinstance(data, list) else (data, 1)
+    def sendformat(self, msg):
+        ret = '{n:03x} {s}'.format(s=msg,n=self.reply)
+        self.reply = (self.reply + 1) % 0x1000
+        return ret
+
+    def sendbuffer(self, data, nl=True):
+        newline = '\n' if nl else ''
+        data = map(self.sendformat, data) if isinstance(data, list) else self.sendformat(data)
+        strdata, strlines = (newline.join(data) + newline, len(data)) \
+            if isinstance(data, list) else (data + newline, 1)
         IptcMain.logger.debug('client({mode},{pid}) sending {n} line(s) of data'.format(
             mode=self.mode, pid=self.pid, n=strlines, x=strdata))
         yield self.stream.write(strdata)
@@ -365,8 +372,11 @@ class Connection():
                     break  # log something?
                 IptcMain.logger.debug('client({mode},{pid}) processing message: {m}'.format(
                     mode=self.mode, pid=self.pid, m=data))
-                (msgnumber, msgdata) = data.split(' ', 1)
-                yield self.process(msgdata, daemon)
+                msgdata = data.split(' ', 1)
+                if len(msgdata) == 2:
+                    yield self.process(msgdata[1], daemon)
+                else:
+                    IptcMain.logger.warning('discarding message with wrong format: {m}'.format(m=data))
 
         except socket.error as e:
             if e[0] != errno.EBADF and e[0] != errno.ECONNRESET and e[0] != errno.EPIPE:
