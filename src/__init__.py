@@ -72,6 +72,10 @@ class IptcCache():
                     continue
                 IptcMain.logger.debug(
                     'clearing chain {name}'.format(name=name))
+                for rule in chain._rules:
+                    IptcMain.logger.debug(
+                        'marking rule {r} as invalid'.format(r=repr(rule)))
+                    rule.valid = False
                 del chain._rules[:]
 
             # initialize control attribute
@@ -147,7 +151,7 @@ class IptcCache():
                         rulepos = int(rdata[2])
                         datapos = 3
 
-                    rule = chain.deserialize(rdata[datapos:])
+                    rule = chain.deserialize(rdata[datapos:], valid=True)
 
                     IptcMain.logger.debug(
                         'running action "{a}" (@{p!s}) on rule "{r!s}"...'.format(a=rdata[0],p=rulepos,r=rule))
@@ -176,8 +180,16 @@ class IptcCache():
                     continue
                 remchains = []
                 for chain in table._chains:
-                    if chain.valid == False:  # dont change this
+                    if chain.valid == False:     # dont change this
                         remchains.append(chain)
+
+                    remrules = []
+                    for rule in chain.rules:
+                        if rule.valid == False:  # dont change this
+                            remrules.append(rule)
+                    for rule in remrules:
+                        chain.rules.remove(rule)
+
                 for chain in remchains:
                     table._chains.remove(chain)
 
@@ -219,7 +231,7 @@ class IptcMain():
 
         if disk:
             handler = logging.handlers.RotatingFileHandler(
-                '/var/log/{name}.log'.format(name=name), maxBytes=1000000, backupCount=3)
+                '/var/log/{name}.log'.format(name=name), maxBytes=3000000, backupCount=5)
             handler.setFormatter(
                 logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'.format(mod=name)))
             logger.addHandler(handler)
@@ -267,14 +279,14 @@ class IptcBaseContainer(object):
 
 
 class IptcChainHook(object):
-    def __init__(self, chain, valid):
-        self.chain = chain
-        self.valid = valid
+    def __init__(self, obj, valid):
+        self.obj, self.valid = obj, valid
 
     def run(self):
-        IptcMain.logger.debug('HOOK: setting chain {name} valid = {v}'.format(
-            name=self.chain.name, v=self.valid))
-        self.chain.valid = self.valid
+        IptcMain.logger.debug('HOOK: setting {name} valid = {v}'.format(v=self.valid,
+            name=('Chain({x})'.format(x=self.obj.name) if hasattr(self.obj, 'name') \
+                else '<{x}>'.format(x=repr(self.obj)))))
+        self.obj.valid = self.valid
 
 
 class IptcBaseTable(object):
@@ -326,8 +338,8 @@ class IptcBaseTable(object):
     def manager(self):
         return IptcBaseTable.getManager(self.addrfamily)
 
-    def update(self, data):
-        self.manager().update(self.name, data)
+    def update(self, data, hook=None):
+        self.manager().update(self.name, data, hook=hook)
         if self.autocommit:
             IptcMain.logger.debug(
                 'calling autocommit for {table} on update'.format(table=self.name))
@@ -470,7 +482,7 @@ class Chain(object):
         self.policy = policy
         self.valid = None
 
-    def deserialize(self, rdata):
+    def deserialize(self, rdata, valid=False):
         attrmap = {
             '-s': 'src',           '--src': 'src',
             '-d': 'src',           '--dst': 'dst',
@@ -483,7 +495,7 @@ class Chain(object):
 
         IptcMain.logger.debug('processing rule data: {s}'.format(s=str(rdata)))
 
-        rule = Rule()
+        rule = Rule(valid=valid)
 
         optind = 0
         revopt, revstr = False, ''
@@ -613,7 +625,7 @@ class Chain(object):
             tmp.append(rule.serialize())
             res = [' '.join(tmp)]
             IptcMain.logger.debug('saving Chain({res})'.format(res=res))
-            self.table.update(res)
+            self.table.update(res, hook=IptcChainHook(rule, True))
 
     def append_rule(self, rule, autoload=True):
         return self.insert_rule(rule, pos=None, autoload=autoload)
@@ -622,27 +634,19 @@ class Chain(object):
         IptcMain.logger.debug(
             'deleting rule {r}, pos {p}'.format(r=str(rule), p=str(pos)))
 
-        tmp = []
-        if rule not in self._rules:
-            if pos is None:
-                tmp.extend(['-D', self.name])
-                tmp.append(rule.serialize())
-            else:
-                tmp.extend(['-D', self.name, str(pos)])
-        else:
-            IptcMain.logger.debug('rules: {rs}'.format(rs=str(self._rules)))
-
-            if pos is None:
-                pos = self._rules.index(rule) + 1
-
+        if rule in self._rules:
             self._rules.remove(rule)
 
-            tmp.extend(['-D', self.name, str(pos)])
+        if rule.valid == False:  # i'm serious, don't change it
+            IptcMain.logger.debug('rule not valid, skipping remove command')
+            return
+
+        tmp = [ '-D', self.name, rule.serialize() if pos is None else str(pos) ]
 
         if autoload:
             res = [' '.join(tmp)]
-            IptcMain.logger.debug('deleting Chain({res})'.format(res=res))
-            self.table.update(res)
+            IptcMain.logger.debug('deleting: {res}'.format(res=res))
+            self.table.update(res, hook=IptcChainHook(rule, False))
 
     def flush(self):
         self._rules = []
@@ -664,6 +668,7 @@ class Rule(IptcBaseContainer):
     def __init__(self, **kwargs):
         self.target = None
         self.matches = []
+        self.valid = kwargs.pop('valid', None)
 
         # this should be the last line in init
         super(Rule, self).__init__(kwargs=kwargs)
