@@ -242,6 +242,9 @@ class IptcMain():
                 logging.Formatter('{mod} %(levelname)s: %(message)s'.format(mod=name)))
             logger.addHandler(handler)
 
+        if not disk and not console:
+            logger.addHandler(logging.handlers.NullHandler())
+
         cls.setLogger(logger)
         cls.setDebug(debug)
 
