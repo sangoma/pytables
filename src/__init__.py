@@ -243,7 +243,7 @@ class IptcMain():
             logger.addHandler(handler)
 
         if not disk and not console:
-            logger.addHandler(logging.handlers.NullHandler())
+            logger.addHandler(logging.NullHandler())
 
         cls.setLogger(logger)
         cls.setDebug(debug)
