@@ -36,7 +36,19 @@ class LineRecvBuffer():
         pos, cur, lst = 0, 0, []
 
         IptcMain.logger.debug('receiving data from server')
-        res = sock.recv(4096)
+        for attempt in range(0, 5):
+            try:
+                res = sock.recv(4096)
+                break
+            except socket.error as e:
+                if e.errno != errno.EINTR:
+                    raise
+                IptcMain.logger.warning(
+                    'recv failed: {s}, trying again...'.format(s=str(e)))
+                time.sleep(0.5)
+        else:
+            raise IPTCError('too many failed recv attempts, giving up')
+
         if len(res) == 0:
             raise IPTCError('connection closed')
 
