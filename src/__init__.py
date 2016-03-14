@@ -487,11 +487,11 @@ class Chain(object):
 
     def deserialize(self, rdata, valid=False):
         attrmap = {
-            '-s': 'src',           '--src': 'src',
-            '-d': 'src',           '--dst': 'dst',
+            '-s': 'src', '--src': 'src',
+            '-d': 'src', '--dst': 'dst',
             '-i': 'in_interface',  '--in-interface':  'in_interface',
             '-o': 'out_interface', '--out-interface': 'out_interface',
-            '-p': 'protocol',      '--protocol': 'protocol'
+            '-p': 'protocol', '--protocol': 'protocol', '--proto': 'protocol'
         }
 
         objopts = ['-m', '-j', '-g']
@@ -677,12 +677,11 @@ class Rule(IptcBaseContainer):
         super(Rule, self).__init__(kwargs=kwargs)
 
     def serialize(self):
-        if self.target is None:
-            raise IPTCError('no target in rule')
         out = self.attributes([])
         for m in self.matches:
             out.append(m.serialize())
-        out.append(self.target.serialize())
+        if self.target is not None:
+            out.append(self.target.serialize())
         res = ' '.join(out)
         IptcMain.logger.debug('serialize Rule({res})'.format(res=res))
         return res

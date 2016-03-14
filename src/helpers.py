@@ -46,9 +46,9 @@ def iptc_command(logger=None, maxretry=5):
                 (logger if logger is not None else \
                     IptcEmptyLogger.emptyLogger)
 
-        def inner(self, *args, **kwargs):
+        def inner(*args, **kwargs):
             for numtry in xrange(maxretry):
-                genbody = body(self, *args, **kwargs)
+                genbody = body(*args, **kwargs)
                 tblcurr, tblsync = list(), list()
                 tbl, got = None, False
                 try:
