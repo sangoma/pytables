@@ -501,7 +501,10 @@ class Chain(object):
         rule = Rule(valid=valid)
 
         optind = 0
-        revopt, revstr = False, ''
+        revopt = False
+
+        def rev_value(revset, value):
+            return '! {0}'.format(value) if revset else value
 
         while optind < len(rdata):
             IptcMain.logger.debug(
@@ -512,13 +515,13 @@ class Chain(object):
             if attrdata is not None:
                 if (optind + 1) == len(rdata):
                     raise IPTCError(
-                        'missing value for option {k}'.format(k=attrdata))
+                        'missing value for option {attrdata}'.format(**locals()))
 
-                IptcMain.logger.debug('setting rule attr "{k}" = "{r}{v}"'.format(
-                    r=revstr, k=attrdata, v=rdata[optind + 1]))
-                setattr(rule, attrdata, revstr + rdata[optind + 1])
+                value = rev_value(revopt, rdata[optind + 1])
+                IptcMain.logger.debug('setting rule attr "{attrdata}" = "{value}"'.format(**locals()))
+                setattr(rule, attrdata, value)
                 optind += 2
-                revopt, revstr = False, ''
+                revopt = False
                 continue
 
             elif rdata[optind] in objopts:
@@ -539,19 +542,16 @@ class Chain(object):
                 nextind += offtind
 
                 if rdata[optind] == '-m':
-                    IptcMain.logger.debug('found match {r}{n} ({s}:{e})'.format(
-                        r=revstr, n=rdata[optind + 1], s=optind, e=nextind))
                     obj = Match(rule, rdata[optind + 1], reverse=revopt)
                 elif rdata[optind] == '-j':
-                    IptcMain.logger.debug('found target {n} ({s}:{e})'.format(
-                        r=revstr, n=rdata[optind + 1], s=optind, e=nextind))
                     obj = Target(rule, rdata[optind + 1])
                 else:
-                    IptcMain.logger.debug('found goto {n} ({s}:{e})'.format(
-                        r=revstr, n=rdata[optind + 1], s=optind, e=nextind))
                     obj = Goto(rule, rdata[optind + 1])
 
-                revopt, revstr = False, ''
+                IptcMain.logger.debug('found {0} {1}{2} ({3}:{4})'.format(obj.__class__.__name__,
+                    ('! ' if revopt else ''), rdata[optind + 1], optind, nextind))
+
+                revopt = False
                 argind = offtind
 
                 while argind < nextind:
@@ -559,29 +559,24 @@ class Chain(object):
                     if arg.startswith('--'):
                         param = arg[2:].replace('-', '_')
 
-                        if argind + 1 < nextind:
-                            if not rdata[argind + 1].startswith('--'):
-                                value = rdata[argind + 1]
-                                argind += 2
-                            else:
-                                value = ''
-                                argind += 1
-                        else:
-                            value = ''
+                        value = list()
+                        argind += 1
+                        while argind < nextind and not rdata[argind].startswith('--'):
+                            value.append(rdata[argind])
                             argind += 1
 
-                        IptcMain.logger.debug(
-                            'setting object attribute "{k}" to "{r}{v}"'.format(r=revstr, k=param, v=value))
-                        setattr(obj, param, revstr + value)
-                        revopt, revstr = False, ''
+                        value = rev_value(revopt, ' '.join(value))
+                        IptcMain.logger.debug('setting object attribute "{param}" to "{value}"'.format(**locals()))
+                        setattr(obj, param, value)
+                        revopt = False
 
                     elif arg == '!':
-                        revopt, revstr = True, '! '
+                        revopt = True
                         argind += 1
 
                     else:
                         IptcMain.logger.error(
-                            'argument {a} in {l} unknown, skipping'.format(a=arg, l=str(rdata)))
+                            'argument {arg} in {rdata!s} unknown, skipping'.format(**locals()))
                         argind += 1
 
                 if rdata[optind] == '-m':
@@ -590,11 +585,11 @@ class Chain(object):
                     rule.target = obj
 
                 optind = nextind
-                revopt, revstr = False, ''
+                revopt = False
                 continue
 
             elif rdata[optind] == '!':
-                revopt, revstr = True, '! '
+                revopt = True
                 optind += 1
 
             else:
