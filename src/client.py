@@ -21,31 +21,67 @@ import time
 import fcntl
 import ConfigParser
 import threading
+import signal
 
 from . import IptcMain, IptcCache, IPTCError, pytables_socket, debugcall
 
 MODULE_NAME = 'pytables-client'
 CONFIG_NAME = '/etc/pytables/clients.conf'
 
+class AlarmTimeout():
+    pass
+
+def raise_alarm(sig, frame):
+    raise AlarmTimeout()
+
+def setup_alarm(timeout):
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, raise_alarm)
+
+    current_time = time.time()
+
+    previous_timeout = signal.alarm(timeout)
+
+    return (previous_handler, previous_timeout, current_time)
+
+def clear_alarm(data):
+    (previous_handler, previous_timeout, previous_time) = data
+
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, previous_handler)
+
+    if previous_timeout != 0:
+        current_time = time.time()
+        current_timeout = int(previous_timeout - (current_time - previous_time))
+        signal.alarm(1 if current_timeout <= 0 else current_timeout)
+
 class LineRecvBuffer():
 
     def __init__(self):
         self.buff = ''
 
-    def recv(self, sock, number=None):
+    def recv(self, sock, number=None, timeout=8):
         pos, cur, lst = 0, 0, []
 
         IptcMain.logger.debug('receiving data from server')
         for attempt in range(0, 5):
+            alarm_data = setup_alarm(timeout)
             try:
                 res = sock.recv(4096)
                 break
+
+            except AlarmTimeout as e:
+                raise IPTCError('timeout waiting for response from server')
+
             except socket.error as e:
                 if e.errno != errno.EINTR:
                     raise
                 IptcMain.logger.warning(
                     'recv failed: {s}, trying again...'.format(s=str(e)))
                 time.sleep(0.5)
+
+            finally:
+                clear_alarm(alarm_data)
         else:
             raise IPTCError('too many failed recv attempts, giving up')
 
