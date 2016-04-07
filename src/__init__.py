@@ -209,6 +209,7 @@ class IptcCache():
 class IptcMain():
     logger = None
     debug = None
+    name = None
 
     @classmethod
     def setLogger(cls, logger):
@@ -219,6 +220,10 @@ class IptcMain():
         cls.debug = debug
         if cls.logger is not None:
             cls.logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    @classmethod
+    def setName(cls, name):
+        cls.name = name
 
     @classmethod
     def getEnvironmentDebug(cls):

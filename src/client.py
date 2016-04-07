@@ -21,72 +21,74 @@ import time
 import fcntl
 import ConfigParser
 import threading
-import signal
+import select
 
 from . import IptcMain, IptcCache, IPTCError, pytables_socket, debugcall
 
 MODULE_NAME = 'pytables-client'
 CONFIG_NAME = '/etc/pytables/clients.conf'
 
-class AlarmTimeout():
-    pass
-
-def raise_alarm(sig, frame):
-    raise AlarmTimeout()
-
-def setup_alarm(timeout):
-    previous_handler = signal.getsignal(signal.SIGALRM)
-    signal.signal(signal.SIGALRM, raise_alarm)
-
-    current_time = time.time()
-
-    previous_timeout = signal.alarm(timeout)
-
-    return (previous_handler, previous_timeout, current_time)
-
-def clear_alarm(data):
-    (previous_handler, previous_timeout, previous_time) = data
-
-    signal.alarm(0)
-    signal.signal(signal.SIGALRM, previous_handler)
-
-    if previous_timeout != 0:
-        current_time = time.time()
-        current_timeout = int(previous_timeout - (current_time - previous_time))
-        signal.alarm(1 if current_timeout <= 0 else current_timeout)
-
 class LineRecvBuffer():
 
     def __init__(self):
         self.buff = ''
 
-    def recv(self, sock, number=None, timeout=8):
-        pos, cur, lst = 0, 0, []
+    def recv_from_socket(self, sock, timeout=None):
+        res = None
 
         IptcMain.logger.debug('receiving data from server')
-        for attempt in range(0, 5):
-            alarm_data = setup_alarm(timeout)
+
+        try:
+            sock.setblocking(0)
+
+            attempts = 0
+            while attempts < 5:
+                try:
+                    res = sock.recv(4096)
+                    break
+
+                except socket.error as e:
+                    if e.errno == errno.EINTR:
+                        IptcMain.logger.warning(
+                            'recv failed: {s}, trying again...'.format(s=str(e)))
+                        time.sleep(0.5)
+                        attempts += 1
+
+                    elif e.errno in [ errno.EAGAIN, errno.EWOULDBLOCK ]:
+                        IptcMain.logger.debug('read would block, polling for changes...')
+
+                        prev_time = time.time()
+
+                        if len(select.select([sock.fileno()], [], [], float(timeout))[0]) == 0:
+                            raise IPTCError('timeout waiting for response from server')
+
+                        curr_time = time.time()
+                        diff_time = int(curr_time - prev_time if curr_time > prev_time else 0)
+
+                        new_timeout = timeout - diff_time
+
+                        timeout = new_timeout if new_timeout > 0 else 0
+                    else:
+                        raise
+
+            else:
+                raise IPTCError('too many failed recv attempts, giving up')
+
+        finally:
             try:
-                res = sock.recv(4096)
-                break
+                sock.setblocking(1)
+            except Exception as e:
+                IptcMain.logger.warning('could not re-enable blocking mode: {s}'.format(s=str(e)))
 
-            except AlarmTimeout as e:
-                raise IPTCError('timeout waiting for response from server')
+        return res
 
-            except socket.error as e:
-                if e.errno != errno.EINTR:
-                    raise
-                IptcMain.logger.warning(
-                    'recv failed: {s}, trying again...'.format(s=str(e)))
-                time.sleep(0.5)
+    def recv(self, sock, number=None, timeout=8):
+        res = self.recv_from_socket(sock, timeout=timeout)
 
-            finally:
-                clear_alarm(alarm_data)
-        else:
-            raise IPTCError('too many failed recv attempts, giving up')
-
-        if len(res) == 0:
+        if len(res) == 0 or res is None:
             raise IPTCError('connection closed')
+
+        pos, cur, lst = 0, 0, []
 
         self.buff += res
         while pos < len(self.buff) and (len(lst) < number if number else True):
@@ -362,7 +364,7 @@ class Manager(object):
                 raise Exception()
 
             sections = config.sections()
-            progname = os.path.basename(os.path.abspath(sys.argv[0]))
+            progname = os.path.basename(IptcMain.name if IptcMain.name else os.path.abspath(sys.argv[0]))
 
             def safeget(sec, name, defvalue, conv):
                 try:
