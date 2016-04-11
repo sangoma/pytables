@@ -2,7 +2,7 @@
 #
 # Startup script for Python iptables server
 #
-# chkconfig: 2345 55 45
+# chkconfig: 2345 12 92
 # description: Python iptables server
 
 # Source function library.
