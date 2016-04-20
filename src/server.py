@@ -62,14 +62,12 @@ class WorkerInstance(object):
         if self.proc is not None:
             return
 
-        IptcMain.logger.debug(
-            'restarting process "{name}"...'.format(name=self.cmdsave[0]))
+        IptcMain.logger.debug('restarting process "{0}"...'.format(self.cmdsave[0]))
+
         try:
-            self.proc = subprocess.Popen(
-                self.cmdsave, bufsize=0, stdin=subprocess.PIPE)
-        except:
-            raise IPTCError('unable to spawn "{name}": {e}'.format(
-                name=self.cmdsave[0], e=str(sys.exc_info()[1])))
+            self.proc = subprocess.Popen(self.cmdsave, bufsize=0, stdin=subprocess.PIPE)
+        except Exception as e:
+            raise IPTCError('unable to spawn "{0}": {1!s}'.format(self.cmdsave[0], e))
 
     def close(self, failed=False):
         self.line = 0
@@ -125,10 +123,9 @@ class WorkerInstance(object):
                 return str(sys.exc_info()[1])
 
         # now apply changes to current cache
-        IptcMain.logger.debug(
-            'worker({mode}) loading changes...'.format(mode=self.mode))
+        IptcMain.logger.debug('worker({0}) loading changes...'.format(self.mode))
         IptcCache.load(self.mode, duplines, reloading=False, autoload=False)
-        IptcMain.logger.debug('worker({mode}) done'.format(mode=self.mode))
+        IptcMain.logger.debug('worker({0}) done'.format(self.mode))
 
         return None
 
@@ -150,8 +147,7 @@ class ConnectionBaseState(object):
         self.transitions = None
 
     def load(self, states):
-        IptcMain.logger.debug(
-            'no transition loaded for state "{n}"'.format(n=self.__class__.__name__))
+        self.logdebug('no transitions loaded for this state')
         self.transitions = {}
 
     def handle(self, c, msg):
@@ -166,24 +162,21 @@ class ConnectionBaseState(object):
         if self.transitions is None:
             self.load(c.state)
 
-        IptcMain.logger.debug(
-            '{n}({p}) calling handler'.format(n=self.__class__.__name__, p=c.pid))
+        self.logdebug('calling handler', c)
         ret = yield self.handle(c, msg)
 
         m = self.transitions.get(msg)
 
         if m is not None:
-            IptcMain.logger.debug('{o}({p}) transition to state "{n}"'.format(
-                o=self.__class__.__name__, n=m.__class__.__name__, p=c.pid))
+            self.logdebug('transition to state "{0}"'.format(m.__class__.__name__), c)
             c.state.current = m
             yield m.running(c)
 
         raise StopIteration(ret)
 
-    ## TODO: replace every debug message for this function
-    def logdebug(self, c=None, msg=None):
-        IptcMain.logger.debug('{o}({p}) {msg}'.format(
-            o=self.__class__.__name__, p=c.pid, msg=msg))
+    def logdebug(self, msg, c=None):
+        IptcMain.logger.debug('{0}{1} {2}'.format(self.__class__.__name__,
+            ('' if c is None else '{0!s} '.format(c.pid)), msg))
 
 class ConnectionStateVoid(ConnectionBaseState):
 
@@ -203,8 +196,7 @@ class ConnectionStateVoid(ConnectionBaseState):
             yield c.send('FAILURE/current state is out-of-date')
             retr = True
 
-            IptcMain.logger.debug('{c}({pid}) handle(SAVE) = FAILURE'.format(pid=c.pid,
-                                                                             c=self.__class__.__name__))
+            self.logdebug('handle(SAVE) = FAILURE', c)
 
         raise StopIteration(retr)
 
@@ -236,9 +228,7 @@ class ConnectionStateLoad(ConnectionBaseState):
         else:
             data = IptcCache.save(c.mode)
 
-            IptcMain.logger.debug('{c}({pid}) running(), sending {n} lines'.format(pid=c.pid,
-                                                                                   c=self.__class__.__name__, n=len(data)))
-
+            self.logdebug('running(), sending {0!s} lines'.format(len(data)), c)
             yield c.sendbuffer(data, nl=False)
             res = 'OK'
 
@@ -264,12 +254,10 @@ class ConnectionStateSave(ConnectionBaseState):
         retr = False
         if msg == 'COMMIT':
             ret = Worker.worker(c.mode).save(self.data)
-
             res = 'OK' if ret is None else 'FAILURE/{ret}'.format(ret=ret)
-            yield c.send(res)
 
-            IptcMain.logger.debug('{c}({pid}) handle(COMMIT) = {res}'.format(pid=c.pid,
-                                                                             c=self.__class__.__name__, res=res))
+            self.logdebug('handle(COMMIT) = {0}'.format(res))
+            yield c.send(res)
 
             self.data = {}
             retr = True
@@ -335,11 +323,14 @@ class Connection():
         self.pid = pid
         self.state = ConnectionState()
         self.reply = 0
-        IptcMain.logger.debug(
-            'client({mode},{pid}) new client instance'.format(mode=self.mode, pid=self.pid))
+        self.logdebug('new client instance')
+
+    def logdebug(self, msg):
+        IptcMain.logger.debug('client({0},{1}) {2}'.format(self.mode, self.pid, msg))
 
     def send(self, data):
-        IptcMain.logger.debug('client({mode},{pid}) sending: {x}'.format(mode=self.mode, pid=self.pid, x=data))
+        if IptcMain.logger.isEnabledFor(logging.DEBUG):
+            self.logdebug('sending: {0}'.format(data))
         yield self.sendbuffer(data)
 
     def sendformat(self, msg):
@@ -352,8 +343,7 @@ class Connection():
         data = map(self.sendformat, data) if isinstance(data, list) else self.sendformat(data)
         strdata, strlines = (newline.join(data) + newline, len(data)) \
             if isinstance(data, list) else (data + newline, 1)
-        IptcMain.logger.debug('client({mode},{pid}) sending {n} line(s) of data'.format(
-            mode=self.mode, pid=self.pid, n=strlines, x=strdata))
+        self.logdebug('sending {0!s} line(s) of data'.format(strlines))
         yield self.stream.write(strdata)
 
     def process(self, message, daemon):
@@ -361,29 +351,26 @@ class Connection():
             daemon.reloaded(self)
 
     def run(self, daemon):
-        IptcMain.logger.debug(
-            'client({mode},{pid}) client running'.format(mode=self.mode, pid=self.pid))
+        self.logdebug('client running')
         try:
             while True:
-                IptcMain.logger.debug(
-                    'client({mode},{pid}) waiting for data...'.format(mode=self.mode, pid=self.pid))
+                self.logdebug('waiting for data...')
                 data = yield self.stream.read_until(ch='\n')
                 if data is None:
                     break  # log something?
-                IptcMain.logger.debug('client({mode},{pid}) processing message: {m}'.format(
-                    mode=self.mode, pid=self.pid, m=data))
+                if IptcMain.logger.isEnabledFor(logging.DEBUG):
+                    self.logdebug('processing message: {0}'.format(data))
                 msgdata = data.split(' ', 1)
                 if len(msgdata) == 2:
                     yield self.process(msgdata[1], daemon)
                 else:
-                    IptcMain.logger.warning('discarding message with wrong format: {m}'.format(m=data))
+                    IptcMain.logger.warning('discarding message with wrong format: {0}'.format(data))
 
         except socket.error as e:
             if e[0] != errno.EBADF and e[0] != errno.ECONNRESET and e[0] != errno.EPIPE:
                 raise
         finally:
-            IptcMain.logger.debug(
-                'client({mode},{pid}) bailing out...'.format(mode=self.mode, pid=self.pid))
+            self.logdebug('bailing out...')
             daemon.disconnect(self)
 
         raise StopIteration()
@@ -402,9 +389,8 @@ class Server():
             return srv
         except ServerAlreadyRunning:
             IptcMain.logger.info('daemon already running, not starting')
-        except:
-            IptcMain.logger.warning(
-                'could not start daemon: {e}'.format(e=str(sys.exc_info()[1])))
+        except Exception as e:
+            IptcMain.logger.warning('could not start daemon: {0!s}'.format(e))
         return None
 
     @classmethod
@@ -450,8 +436,8 @@ class Server():
 
         debug = cls.getEnvironmentDebug() if debug is None else debug
 
-        suffix = '-{}'.format(mode) if mode is not None else ''
-        IptcMain.initialize('{}{}'.format(MODULE_NAME, suffix), debug=debug,
+        suffix = '-{0}'.format(mode) if mode is not None else ''
+        IptcMain.initialize('{0}{1}'.format(MODULE_NAME, suffix), debug=debug,
             disk=disk, console=console)
 
     @classmethod
@@ -476,6 +462,7 @@ class Server():
         self.sock = Server.setupSocket(mode)
         self.mode = mode
         self.tasks = None
+        self.with_timeout = None
 
     def execute(self):
         pid = os.fork()
@@ -507,13 +494,12 @@ class Server():
         sockflags = fcntl.fcntl(sock, fcntl.F_GETFD)
         fcntl.fcntl(sock, fcntl.F_SETFD, sockflags | fcntl.FD_CLOEXEC)
 
-    def log(self, msg, debug=True):
-        data = 'server({mode},{pid}) {msg}'.format(
-            mode=self.mode, pid=os.getpid(), msg=msg)
-        if debug:
-            IptcMain.logger.debug(data)
-        else:
-            IptcMain.logger.info(data)
+    def log(self, msg, debug=False):
+        fn = IptcMain.logger.debug if debug else IptcMain.logger.info
+        fn('server({0},{1}) {2}'.format(self.mode, os.getpid(), msg))
+
+    def logdebug(self, msg):
+        self.log(msg, debug=True)
 
     def main(self):
         self.cloexec(self.sock)
@@ -522,9 +508,10 @@ class Server():
         return 0
 
     def run(self, enable_timeout=True):
+        self.with_timeout = enable_timeout
         self.clients = set()
 
-        self.log('listening...', debug=False)
+        self.log('listening...')
         try:
             while True:
                 kwargs = dict()
@@ -537,8 +524,7 @@ class Server():
                 buffdata = conn.getsockopt(socket.SOL_SOCKET, 17, 24)
                 (pid, uid, gid) = struct.unpack('III', buffdata)
 
-                self.log('connection from PID {p} (uid={u}, gid={g})'.format(
-                    p=pid, u=uid, g=gid), debug=False)
+                self.log('connection from PID {0!s} (uid={1!s}, gid={2!s})'.format(pid, uid, gid))
 
                 client = Connection(self.mode, conn, pid)
                 self.connect(client, conn)
@@ -547,13 +533,13 @@ class Server():
             if e[0] != errno.EBADF:
                 raise
         except mt.Timeout:
-            self.log('timeout waiting for clients', debug=False)
+            self.log('timeout waiting for clients')
         finally:
             self.log('terminated')
             self.cleanup()
 
     def reloaded(self, client):
-        self.log('reload request from client PID {p}'.format(p=client.pid))
+        self.logdebug('reload request from client PID {0!s}'.format(client.pid))
         for oclient in self.clients:
             if client == oclient:
                 continue
@@ -568,8 +554,8 @@ class Server():
         if client in self.clients:
             self.clients.remove(client)
 
-        if len(self.clients) == 0:
-            self.log('no clients left, starting timeout', debug=False)
+        if len(self.clients) == 0 and self.with_timeout:
+            self.log('no clients left, starting timeout')
 
     def cleanup(self):
         for client in self.clients:

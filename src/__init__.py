@@ -24,7 +24,7 @@ import fcntl
 MODULE_NAME = 'pytables'
 
 def pytables_socket(mode):
-    return b'\0' + b'{b}-{m}.server'.format(b=MODULE_NAME, m=mode)
+    return b'\0' + b'{0}-{1}.server'.format(MODULE_NAME, mode)
 
 def formatcall(this, name, args, kwargs, res=None):
     args = [ str(arg) for arg in args ]
@@ -70,11 +70,9 @@ class IptcCache():
             for name, chain in Chain._cache.items():
                 if chain.table.addrfamily != mode:
                     continue
-                IptcMain.logger.debug(
-                    'clearing chain {name}'.format(name=name))
+                IptcMain.logger.debug('clearing chain {0}'.format(name))
                 for rule in chain._rules:
-                    IptcMain.logger.debug(
-                        'marking rule {r} as invalid'.format(r=repr(rule)))
+                    IptcMain.logger.debug('marking rule {0} as invalid'.format(repr(rule)))
                     rule.valid = False
                 del chain._rules[:]
 
@@ -91,21 +89,16 @@ class IptcCache():
                 continue
 
             if stripline.startswith('*'):
-                IptcMain.logger.debug(
-                    'found table specification "{l}"'.format(l=stripline))
-
+                IptcMain.logger.debug('found table specification "{0}"'.format(stripline))
                 table = IptcBaseTable(stripline[1:], mode, autocommit=True, autoload=autoload)
                 continue
 
             if stripline.startswith(':'):
-                IptcMain.logger.debug(
-                    'found chain specification "{l}"'.format(l=stripline))
-                (chain_name, chain_policy, chain_stats) = shlex.split(
-                    stripline[1:])
+                IptcMain.logger.debug('found chain specification "{0}"'.format(stripline))
+                (chain_name, chain_policy, chain_stats) = shlex.split(stripline[1:])
 
                 if table is None:
-                    IptcMain.logger.error(
-                        'no table, cannot create chain "{name}"'.format(name=chain_name))
+                    IptcMain.logger.error('no table, cannot create chain "{0}"'.format(chain_name))
                     continue
 
                 if chain_policy == '-':
@@ -119,28 +112,25 @@ class IptcCache():
                     table._chains.append(chain)
 
                 if reloading:
-                    IptcMain.logger.debug(
-                        'chain {name} is valid'.format(name=chain_name))
+                    IptcMain.logger.debug('chain {0} is valid'.format(chain_name))
                     chain.valid = True
                 continue
 
             if any((stripline.startswith(e) for e in [ '-A', '-D', '-I' ])):
-                IptcMain.logger.debug(
-                    'found rule specification "{l}"'.format(l=stripline))
+                IptcMain.logger.debug('found rule specification "{0}"'.format(stripline))
 
                 rdata = shlex.split(stripline)
 
                 if table is None:
                     IptcMain.logger.error(
-                        'no table, cannot load rule in chain "{name}"'.format(name=rdata[1] \
+                        'no table, cannot load rule in chain "{0}"'.format(rdata[1] \
                             if len(rdata) <> 0 else '<none>'))
                     continue
 
                 chain = Chain(table, rdata[1], autoload=autoload)
 
                 if chain is None:
-                    IptcMain.logger.error(
-                        'chain is none, cannot load rule "{l}"'.format(l=stripline))
+                    IptcMain.logger.error('no chain, cannot load rule "{0}"'.format(stripline))
                     continue
 
                 try:
@@ -153,8 +143,7 @@ class IptcCache():
 
                     rule = chain.deserialize(rdata[datapos:], valid=True)
 
-                    IptcMain.logger.debug(
-                        'running action "{a}" (@{p!s}) on rule "{r!s}"...'.format(a=rdata[0],p=rulepos,r=rule))
+                    IptcMain.logger.debug('running action "{0}" (@{1!s}) on rule "{2!s}"...'.format(rdata[0], rulepos, rule))
 
                     if   rdata[0] == '-A':
                         chain.append_rule(rule, autoload=autoload)
@@ -163,12 +152,10 @@ class IptcCache():
                     elif rdata[0] == '-D':
                         chain.delete_rule(rule, **(dict(autoload=autoload, pos=rulepos) if rulepos is not None else dict(autoload=autoload)))
                     else:
-                        IptcMain.logger.warning(
-                            'unknown action "{a}", ignoring rule "{r!s}"'.format(a=rdata[0],r=rdata[1:]))
+                        IptcMain.logger.warning('unknown action "{0}", ignoring rule "{1!s}"'.format(rdata[0], rdata[1:]))
 
                 except IPTCError, e:
-                    IptcMain.logger.error(
-                        'unable to parse chain {name}: {e}'.format(name=chain.name, e=str(e)))
+                    IptcMain.logger.error('unable to parse chain {0}: {1!s}'.format(chain.name, e))
                     raise
 
                 continue
@@ -195,13 +182,12 @@ class IptcCache():
 
     @classmethod
     def save(cls, mode):
-        IptcMain.logger.debug('IptcCache::save({mode})'.format(mode=mode))
+        IptcMain.logger.debug('IptcCache::save({0})'.format(mode))
         res = []
         for _, table in IptcBaseTable._cache.items():
             if table.addrfamily != mode:
                 continue
-            IptcMain.logger.debug(
-                'saving table {name}'.format(name=table.name))
+            IptcMain.logger.debug('saving table {0}'.format(table.name))
             res.append('*' + table.name + '\n')
             res.extend(table.dump(eol='\n'))
         return res
@@ -256,7 +242,6 @@ class IptcMain():
 
 # Internal base classes
 
-
 class IptcBaseContainer(object):
 
     def __init__(self, kwargs=None):
@@ -271,8 +256,7 @@ class IptcBaseContainer(object):
                 continue
             param = key.replace('_', '-')
 
-            IptcMain.logger.debug(
-                'adding attribute "{k}" = "{v}"...'.format(k=param, v=val))
+            IptcMain.logger.debug('adding attribute "{0}" = "{1}"...'.format(param, val))
 
             outarg = '--{p}'.format(p=param)
             if len(val) != 0:
@@ -291,9 +275,9 @@ class IptcChainHook(object):
         self.obj, self.valid = obj, valid
 
     def run(self):
-        IptcMain.logger.debug('HOOK: setting {name} valid = {v}'.format(v=self.valid,
-            name=('Chain({x})'.format(x=self.obj.name) if hasattr(self.obj, 'name') \
-                else '<{x}>'.format(x=repr(self.obj)))))
+        IptcMain.logger.debug('HOOK: setting {name} valid = {0!s}'.format(self.valid,
+            name=('Chain({0})'.format(self.obj.name) if hasattr(self.obj, 'name') \
+                else '<{0}>'.format(repr(self.obj)))))
         self.obj.valid = self.valid
 
 
@@ -322,18 +306,18 @@ class IptcBaseTable(object):
     def __new__(cls, name, addrfamily, autocommit, autoload=True):
         if autoload:
             IptcBaseTable.getManager().initialize()
-        refer = addrfamily + '.' + name
+        refer = '{0}.{1}'.format(addrfamily, name)
         IptcMain.logger.debug(
-            'checking cache for Table({r})'.format(r=refer))
+            'checking cache for Table({0})'.format(refer))
         obj = IptcBaseTable._cache.get(refer, None)
         if obj is None:
             IptcMain.logger.debug(
-                'no previous Table({r}) object, creating new...'.format(r=refer))
+                'no previous Table({0}) object, creating new...'.format(refer))
             obj = object.__new__(cls)
             obj.setup(name, addrfamily, autocommit)
             IptcBaseTable._cache[refer] = obj
         if autoload:
-            IptcMain.logger.debug('requested autoload from Table({r})'.format(r=refer))
+            IptcMain.logger.debug('requested autoload from Table({0})'.format(refer))
             IptcBaseTable.getManager(addrfamily).resync()
         return obj
 
@@ -350,7 +334,7 @@ class IptcBaseTable(object):
         self.manager().update(self.name, data, hook=hook)
         if self.autocommit:
             IptcMain.logger.debug(
-                'calling autocommit for {table} on update'.format(table=self.name))
+                'calling autocommit for {0} on update'.format(self.name))
             self.manager().save()
 
     chains = property(lambda s: list(s._chains))
@@ -385,8 +369,8 @@ class IptcBaseTable(object):
         if isinstance(chain, str):
             chain = Chain(self, chain)
 
-        IptcMain.logger.debug(
-            'create_chain({name},valid={v})'.format(name=chain.name, v=str(chain.valid)))
+        IptcMain.logger.debug('create_chain({0},valid={1!s})'.format(chain.name, chain.valid))
+
         for cur in self._chains:
             if chain.name == cur.name:
                 break
@@ -394,8 +378,7 @@ class IptcBaseTable(object):
             self._chains.append(chain)
 
         if chain.valid == True:  # really, dont change this
-            IptcMain.logger.debug(
-                'chain already valid, skipping insert command')
+            IptcMain.logger.debug('chain {0} already valid, skipping insert cmd'.format(chain.name))
             return
 
         out = ['-N {name}'.format(name=chain.name)]
@@ -403,7 +386,7 @@ class IptcBaseTable(object):
         self.manager().update(self.name, out, hook=IptcChainHook(chain, True))
         if self.autocommit:
             IptcMain.logger.debug(
-                'calling autocommit for {table} on chain {chain} creation'.format(table=self.name, chain=chain.name))
+                'calling autocommit for {0} on chain {1} creation'.format(self.name, chain.name))
             self.manager().save()
         return chain
 
@@ -411,15 +394,15 @@ class IptcBaseTable(object):
         if isinstance(chain, str):
             chain = Chain(self, chain)
 
-        IptcMain.logger.debug(
-            'delete_chain({name},valid={v})'.format(name=chain.name, v=str(chain.valid)))
+        IptcMain.logger.debug('delete_chain({0},valid={1!s})'.format(chain.name, chain.valid))
+
         for cur in self._chains:
             if chain.name == cur.name:
                 self._chains.remove(cur)
                 break
 
         if chain.valid == False:  # i'm serious, don't change it
-            IptcMain.logger.debug('chain not valid, skipping remove command')
+            IptcMain.logger.debug('chain {0} not valid, skipping remove cmd'.format(chain.name))
             return
 
         out = ['-X {name}'.format(name=chain.name)]
@@ -427,7 +410,7 @@ class IptcBaseTable(object):
         self.manager().update(self.name, out, hook=IptcChainHook(chain, False))
         if self.autocommit:
             IptcMain.logger.debug(
-                'calling autocommit for {table} on chain {chain} deletion'.format(table=self.name, chain=chain.name))
+                'calling autocommit for {0} on chain {1} deletion'.format(self.name, chain.name))
             self.manager().save()
 
     @debugcall
@@ -437,16 +420,13 @@ class IptcBaseTable(object):
     def dump(self, eol=''):
         res = []
         for chain in self._chains:
-            pol = '-'
-            if chain.policy is not None:
-                pol = chain.policy
-            res.append(':{name} {pol} [0:0]{eol}'.format(
-                name=chain.name, pol=pol, eol=eol))
+            pol = '-' if chain.policy is None else chain.policy
+            res.append(':{0} {1} [0:0]{2}'.format(chain.name, pol, eol))
             res.extend(chain.dump(eol))
         return res
 
     def __str__(self):
-        return 'Table({f}.{n})'.format(f=self.addrfamily, n=self.name)
+        return 'Table({0}.{1})'.format(self.addrfamily, self.name)
 
 # External interface starts here
 
@@ -467,8 +447,8 @@ class Chain(object):
     _cache = {}
 
     def __new__(cls, table, name, policy=None, autoload=True):
-        refer = table.addrfamily + '.' + table.name + '.' + name
-        IptcMain.logger.debug('checking cache for Chain({r})'.format(r=refer))
+        refer = '{0}.{1}.{2}'.format(table.addrfamily, table.name, name)
+        IptcMain.logger.debug('checking cache for Chain({0})'.format(refer))
         obj = Chain._cache.get(refer, None)
         if obj is None:
             IptcMain.logger.debug('no previous Chain object, creating new...')
@@ -476,14 +456,13 @@ class Chain(object):
             obj.setup(table, name, policy)
             Chain._cache[refer] = obj
         if autoload:
-            IptcMain.logger.debug('requested autoload from Chain({r})'.format(r=refer))
+            IptcMain.logger.debug('requested autoload from Chain({0})'.format(refer))
             from client import Manager
             Manager.manager(table.addrfamily).resync()
         return obj
 
     def setup(self, table, name, policy):
-        IptcMain.logger.debug(
-            'running init on Chain {name}...'.format(name=name))
+        IptcMain.logger.debug('running init on Chain {0}...'.format(name))
         self._rules = []
         self.table = table
         self.name = name
@@ -501,7 +480,7 @@ class Chain(object):
 
         objopts = ['-m', '-j', '-g']
 
-        IptcMain.logger.debug('processing rule data: {s}'.format(s=str(rdata)))
+        IptcMain.logger.debug('processing rule data: {0!s}'.format(rdata))
 
         rule = Rule(valid=valid)
 
@@ -512,18 +491,15 @@ class Chain(object):
             return '! {0}'.format(value) if revset else value
 
         while optind < len(rdata):
-            IptcMain.logger.debug(
-                'processing arg "{s}"'.format(s=rdata[optind]))
-
+            IptcMain.logger.debug('processing arg "{0}"'.format(rdata[optind]))
             attrdata = attrmap.get(rdata[optind])
 
             if attrdata is not None:
                 if (optind + 1) == len(rdata):
-                    raise IPTCError(
-                        'missing value for option {attrdata}'.format(**locals()))
+                    raise IPTCError('missing value for option "{0}"'.format(attrdata))
 
                 value = rev_value(revopt, rdata[optind + 1])
-                IptcMain.logger.debug('setting rule attr "{attrdata}" = "{value}"'.format(**locals()))
+                IptcMain.logger.debug('setting rule attr "{0}" = "{1}"'.format(attrdata, value))
                 setattr(rule, attrdata, value)
                 optind += 2
                 revopt = False
@@ -531,8 +507,7 @@ class Chain(object):
 
             elif rdata[optind] in objopts:
                 if (optind + 1) == len(rdata):
-                    raise IPTCError(
-                        'missing name for match/target/goto {name}'.format(name=rdata[optind]))
+                    raise IPTCError('missing name for match/target/goto {0}'.format(rdata[optind]))
 
                 offtind = optind + 2
                 nextind = len(rdata) - offtind
@@ -571,7 +546,7 @@ class Chain(object):
                             argind += 1
 
                         value = rev_value(revopt, ' '.join(value))
-                        IptcMain.logger.debug('setting object attribute "{param}" to "{value}"'.format(**locals()))
+                        IptcMain.logger.debug('setting object attribute "{0}" to "{1}"'.format(param, value))
                         setattr(obj, param, value)
                         revopt = False
 
@@ -580,8 +555,7 @@ class Chain(object):
                         argind += 1
 
                     else:
-                        IptcMain.logger.error(
-                            'argument {arg} in {rdata!s} unknown, skipping'.format(**locals()))
+                        IptcMain.logger.error('unknown argument {0} in {1!s}, skipping'.format(arg, rdata))
                         argind += 1
 
                 if rdata[optind] == '-m':
@@ -598,8 +572,7 @@ class Chain(object):
                 optind += 1
 
             else:
-                raise IPTCError(
-                    'unable to process option {name}'.format(name=rdata[optind]))
+                raise IPTCError('unable to process option {0}'.format(rdata[optind]))
 
         return rule
 
@@ -609,8 +582,7 @@ class Chain(object):
     rules = property(lambda s: list(s._rules))
 
     def insert_rule(self, rule, pos=1, autoload=True):
-        IptcMain.logger.debug(
-            'inserting rule {r}, pos {p}'.format(r=str(rule), p=str(pos)))
+        IptcMain.logger.debug('inserting rule {0!s}, pos {1!s}'.format(rule, pos))
 
         tmp = []
         if rule not in self._rules:
@@ -627,15 +599,14 @@ class Chain(object):
         if autoload:
             tmp.append(rule.serialize())
             res = [' '.join(tmp)]
-            IptcMain.logger.debug('saving Chain({res})'.format(res=res))
+            IptcMain.logger.debug('saving Chain({0})'.format(res))
             self.table.update(res, hook=IptcChainHook(rule, True))
 
     def append_rule(self, rule, autoload=True):
         return self.insert_rule(rule, pos=None, autoload=autoload)
 
     def delete_rule(self, rule, pos=None, autoload=True):
-        IptcMain.logger.debug(
-            'deleting rule {r}, pos {p}'.format(r=str(rule), p=str(pos)))
+        IptcMain.logger.debug('deleting rule {0!s}, pos {1!s}'.format(rule, pos))
 
         if rule in self._rules:
             self._rules.remove(rule)
@@ -648,22 +619,21 @@ class Chain(object):
 
         if autoload:
             res = [' '.join(tmp)]
-            IptcMain.logger.debug('deleting: {res}'.format(res=res))
+            IptcMain.logger.debug('deleting: {0!s}'.format(res))
             self.table.update(res, hook=IptcChainHook(rule, False))
 
     def flush(self):
         self._rules = []
-        self.table.update(['-F {name}'.format(name=self.name)])
+        self.table.update(['-F {0}'.format(self.name)])
 
     def dump(self, eol=''):
         res = []
         for rule in self._rules:
-            res.append(
-                '-A {c} {r}{eol}'.format(c=self.name, r=rule.serialize(), eol=eol))
+            res.append('-A {0} {1}{2}'.format(self.name, rule.serialize(), eol))
         return res
 
     def __str__(self):
-        return 'Chain({f}.{t}.{n})'.format(f=self.table.addrfamily, t=self.table.name, n=self.name)
+        return 'Chain({0}.{1}.{2})'.format(self.table.addrfamily, self.table.name, self.name)
 
 
 class Rule(IptcBaseContainer):
@@ -683,7 +653,7 @@ class Rule(IptcBaseContainer):
         if self.target is not None:
             out.append(self.target.serialize())
         res = ' '.join(out)
-        IptcMain.logger.debug('serialize Rule({res})'.format(res=res))
+        IptcMain.logger.debug('serialize Rule({0})'.format(res))
         return res
 
     def add_match(self, match):
@@ -717,7 +687,7 @@ class Match(IptcBaseContainer):
         if self.reverse:
             lst.insert(0, '!')
         res = ' '.join(self.attributes(lst))
-        IptcMain.logger.debug('serialize Match({res})'.format(res=res))
+        IptcMain.logger.debug('serialize Match({0})'.format(res))
         return res
 
 
@@ -739,7 +709,7 @@ class Target(IptcBaseContainer):
     def serialize(self):
         lst = ['-j', self.name]
         res = ' '.join(self.attributes(lst))
-        IptcMain.logger.debug('Target({res})'.format(res=res))
+        IptcMain.logger.debug('Target({0})'.format(res))
         return res
 
 
@@ -760,24 +730,21 @@ class Goto(IptcBaseContainer):
     def serialize(self):
         lst = ['-g', self.name]
         res = ' '.join(self.attributes(lst))
-        IptcMain.logger.debug('Goto({res})'.format(res=res))
+        IptcMain.logger.debug('Goto({0})'.format(res))
         return res
-
-# Debug function
 
 
 def dump_current_cache():
+    '''Debug function, dumps all the current cache in memory.'''
+
     IptcMain.logger.info('-------- DUMPING CACHE BEGIN --------')
     for keyname, table in IptcBaseTable._cache.items():
-        IptcMain.logger.info(
-            'TABLE({af} {name} [{k}]'.format(af=table.addrfamily, name=table.name, k=keyname))
+        IptcMain.logger.info('TABLE({0} {1} [{2}]'.format(table.addrfamily, table.name, keyname))
 
         for chain in table._chains:
-            IptcMain.logger.info(
-                '  CHAIN {name} {pol}'.format(name=chain.name, pol=str(chain.policy)))
+            IptcMain.logger.info('  CHAIN {0} {1!s}'.format(chain.name, chain.policy))
 
             for rule in chain._rules:
-                IptcMain.logger.info(
-                    '    RULE: {r}'.format(r=rule.serialize()))
+                IptcMain.logger.info('    RULE: {0}'.format(rule.serialize()))
 
     IptcMain.logger.info('--------- DUMPING CACHE END ---------')

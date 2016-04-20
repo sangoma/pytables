@@ -35,7 +35,7 @@ class install(_install):
     def run(self):
         _install.run(self)
 
-        rootdir = getattr(self, 'root') if hasattr(self, 'root') else ''
+        rootdir = (lambda x: '' if x is None else x)(getattr(self, 'root', None))
 
         import os
         import stat
@@ -47,11 +47,15 @@ class install(_install):
 
 setup(name='pytables',
     cmdclass={'install': install},
-    version='0.1',
+    version='0.9',
     description='Pure-python iptc-compatible iptables frontend',
-    author='Sangoma Technologies',
-    author_email='langy@sangoma.com',
+    author='Leonardo Lang',
+    author_email='lang@sangoma.com',
     packages=['pytables'],
     package_dir={'pytables': 'src'},
+    classifiers=['Development Status :: 4 - Beta',
+                 'Programming Language :: Python',
+                 'Operating System :: POSIX :: Linux',
+                 'Intended Audience :: Developers'],
     data_files=datafiles
 )

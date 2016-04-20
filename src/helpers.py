@@ -16,6 +16,7 @@ from . import IPTCError, XTablesError
 class IptcEmptyLogger(object):
     emptyLogger = None
 
+    def critical(x): pass
     def error(x): pass
     def warning(x): pass
     def info(x): pass
@@ -75,19 +76,19 @@ def iptc_command(logger=None, maxretry=5):
 
                 except (IPTCError, XTablesError) as e:
                     if tbl is not None:
-                        getlogger().debug("commit failed on table {!s}: {!s}, retrying...".format(tbl, e))
+                        getlogger().debug("commit failed on table {0!s}: {1!s}, retrying...".format(tbl, e))
                         try:
                             tbl.restart()
                         except (IPTCError, XTablesError) as e:
-                            getlogger().warning("restart failed on table {!s}: {!s}.".format(tbl, e))
+                            getlogger().warning("restart failed on table {0!s}: {1!s}.".format(tbl, e))
                     else:
-                        getlogger().debug("iptc operation failed: {!s}, retrying...".format(e))
+                        getlogger().debug("iptc operation failed: {0!s}, retrying...".format(e))
 
                     time.sleep(0.05)
 
                 except StopIteration as e:
                     if not got:
-                        getlogger().warning('iptc function "{!s}" returned without commiting anything'.format(body.__name__))
+                        getlogger().warning('iptc function "{0!s}" returned without commiting anything'.format(body.__name__))
 
                     try:
                         tbl = None
@@ -95,7 +96,7 @@ def iptc_command(logger=None, maxretry=5):
                             tbl.commit()
 
                     except (IPTCError, XTablesError) as e:
-                        getlogger().debug("commit failed on table {!s}: {!s}, retrying...".format(tbl, e))
+                        getlogger().debug("commit failed on table {0!s}: {1!s}, retrying...".format(tbl, e))
                         continue
 
                     try:
@@ -104,10 +105,10 @@ def iptc_command(logger=None, maxretry=5):
                         return None
 
                 except IptcAbort as e:
-                    getlogger().debug('iptc function "{!s}" voluntarily aborted'.format(body.__name__))
+                    getlogger().debug('iptc function "{0!s}" voluntarily aborted'.format(body.__name__))
                     return None
             else:
-                getlogger().error('too many retries for iptc function "{!s}", aborting'.format(body.__name__))
+                getlogger().error('too many retries for iptc function "{0!s}", aborting'.format(body.__name__))
 
         inner.__name__ = body.__name__
         inner.__doc__ = body.__doc__

@@ -49,14 +49,12 @@ class LineRecvBuffer():
 
                 except socket.error as e:
                     if e.errno == errno.EINTR:
-                        IptcMain.logger.warning(
-                            'recv failed: {s}, trying again...'.format(s=str(e)))
+                        IptcMain.logger.warning('recv failed: {0!s}, trying again...'.format(e))
                         time.sleep(0.5)
                         attempts += 1
 
                     elif e.errno in [ errno.EAGAIN, errno.EWOULDBLOCK ]:
                         IptcMain.logger.debug('read would block, polling for changes...')
-
                         prev_time = time.time()
 
                         if len(select.select([sock.fileno()], [], [], float(timeout))[0]) == 0:
@@ -78,7 +76,7 @@ class LineRecvBuffer():
             try:
                 sock.setblocking(1)
             except Exception as e:
-                IptcMain.logger.warning('could not re-enable blocking mode: {s}'.format(s=str(e)))
+                IptcMain.logger.warning('could not re-enable blocking mode: {0!s}'.format(e))
 
         return res
 
@@ -101,7 +99,9 @@ class LineRecvBuffer():
         if pos != 0:
             self.buff = self.buff[pos:]
 
-        IptcMain.logger.debug('responses from server: {s}'.format(s=', '.join(lst)))
+        if IptcMain.logger.isEnabledFor(logging.DEBUG):
+            IptcMain.logger.debug('responses from server: {0}'.format(', '.join(lst)))
+
         return lst
 
 
@@ -132,8 +132,7 @@ class ManagerInstance(object):
                 break
             except socket.error as e:
                 Manager.checkServer(self.mode)
-                IptcMain.logger.warning(
-                    'connection failed: {s}, trying again...'.format(s=str(e)))
+                IptcMain.logger.warning('connection failed: {0!s}, trying again...'.format(e))
                 time.sleep(0.5)
         else:
             raise IPTCError('too many failed connection attempts, giving up')
@@ -141,33 +140,35 @@ class ManagerInstance(object):
     def send(self, data):
         if self.sock is None:
             self.start()
-        IptcMain.logger.debug(
-            '({mode}) sending: {data}'.format(mode=self.mode, data=data))
+        if IptcMain.logger.isEnabledFor(logging.DEBUG):
+            IptcMain.logger.debug('({0}) sending: {1}'.format(self.mode, data))
         self.sendbuffer(data, nl=True)
 
     def sendformat(self, msg):
-        ret = '{n:03x} {s}'.format(s=msg,n=self.request)
+        ret = '{0:03x} {1}'.format(msg, self.request)
         self.request = (self.request + 1) % 0x1000
         return ret
 
     def sendbuffer(self, data, nl=True):
         newline = '\n' if nl else ''
         data = map(self.sendformat, data) if isinstance(data, list) else self.sendformat(data)
+
         strdata, strlines = (newline.join(data) + newline, len(data)) \
             if isinstance(data, list) else (data + newline, 1)
-        IptcMain.logger.debug(
-            '({mode}) buffering {n} lines'.format(mode=self.mode, n=strlines))
+
+        IptcMain.logger.debug('({0}) buffering {1!s} lines'.format(self.mode, strlines))
         self.sock.send(strdata)
 
     def process(self, data):
         res = list()
         for line in data:
-            IptcMain.logger.debug('processing message: {m}'.format(m=line))
+            if IptcMain.logger.isEnabledFor(logging.DEBUG):
+                IptcMain.logger.debug('processing message: {0}'.format(line))
             msgdata = line.split(' ', 1)
             if len(msgdata) == 2:
                 res.append(msgdata[1])
             else:
-                IptcMain.logger.warning('ignoring message with wrong format: {m}'.format(m=line))
+                IptcMain.logger.warning('ignoring message with wrong format: {0}'.format(line))
         return res
 
     def recv(self, number=None):
@@ -180,7 +181,7 @@ class ManagerInstance(object):
         self.resync(force=force)
 
     def resync(self, force=False):
-        IptcMain.logger.debug('requested manager resync (force={f!s})'.format(f=force))
+        IptcMain.logger.debug('requested manager resync (force={0!s})'.format(force))
 
         try:
             self.lock.acquire()
@@ -216,7 +217,7 @@ class ManagerInstance(object):
             if msgdata.startswith('FAILURE/'):
                 raise IPTCError(msgdata[8:])
             if msgdata != 'OK':
-                raise IPTCError('unknown reply: {s}'.format(s=msgdata))
+                raise IPTCError('unknown reply: {0}'.format(msgdata))
         finally:
             if locked:
                 self.lock.release()
@@ -233,7 +234,7 @@ class ManagerInstance(object):
 
             while not okey:
                 for line in self.recv():
-                    IptcMain.logger.debug('{mode} received: {data}'.format(mode=self.mode,data=line))
+                    IptcMain.logger.debug('{0} received: {1}'.format(self.mode, line))
 
                     if line == 'OK':
                         okey = True
@@ -272,8 +273,7 @@ class ManagerInstance(object):
             else:
                 hookdata.append(hook)
 
-        IptcMain.logger.debug(
-            'buffering {n} lines for table {mode}.{name}...'.format(n=len(data), mode=self.mode, name=tblname))
+        IptcMain.logger.debug('buffering {0!s} lines for table {1}.{2}...'.format(len(data), self.mode, tblname))
 
         self.lock.release()
 
@@ -295,7 +295,7 @@ class ManagerInstance(object):
                     if msgdata.startswith('FAILURE/'):
                         raise IPTCError(msgdata[8:])
                     if msgdata != 'OK':
-                        raise IPTCError('unknown reply: {s}'.format(s=msgdata))
+                        raise IPTCError('unknown reply: {0}'.format(msgdata))
 
                     hooks = self.chain_hooks.get(tblname)
                     if hooks is not None:
@@ -330,8 +330,9 @@ class Manager(object):
 
     @classmethod
     def checkServer(cls, mode):
-        IptcMain.logger.debug('checking server autostart ({!s}abled)'.format('en' \
-            if cls.autostart else 'dis'))
+        IptcMain.logger.debug('checking server autostart ({0})'.format( \
+            'enabled' if cls.autostart else 'disabled'))
+
         if not cls.autostart or mode in cls.autoservers:
             return False
 
@@ -394,7 +395,7 @@ class Manager(object):
         if cls.autostart is None:
             cls.autostart = cls.getEnvAutoStart()
 
-        IptcMain.initialize('{}-{}'.format(MODULE_NAME, progname), debug=optdebug,
+        IptcMain.initialize('{0}-{1}'.format(MODULE_NAME, progname), debug=optdebug,
             disk=optdisk, console=optconsole)
 
 if __name__ == "__main__":
@@ -422,10 +423,6 @@ if __name__ == "__main__":
 
     print str(tbl.dump())
     print str(tbl2.dump())
-
-#    # pytables.py dump
-#    if len(sys.argv) > 1 and sys.argv[1] == 'dump':
-#        dump_current_cache()
 
     print 'Done!'
 
